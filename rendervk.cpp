@@ -370,7 +370,7 @@ void VulkanRenderer::createRenderTarget(const QSize &size)
 
     VkMemoryRequirements colorMemReq;
     vkGetImageMemoryRequirements(m_vkDev, m_color, &colorMemReq);
-    unsigned memTypeIndex = 0;
+    unsigned long memTypeIndex = 0;
     if (colorMemReq.memoryTypeBits) {
 #if defined(Q_CC_GNU)
         memTypeIndex = __builtin_ctz(colorMemReq.memoryTypeBits);
