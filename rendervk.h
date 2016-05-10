@@ -78,10 +78,10 @@ private:
     bool m_inited = false;
     VkInstance m_vkInst;
     VkPhysicalDevice m_vkPhysDev;
+    VkPhysicalDeviceMemoryProperties m_vkPhysDevMemProps;
     VkDevice m_vkDev;
     VkQueue m_vkQueue;
     VkCommandPool m_vkCmdPool;
-    uint32_t m_deviceLocalMemIndex;
     uint32_t m_hostVisibleMemIndex;
     VkSemaphore m_semRender;
     VkSemaphore m_semPresent;

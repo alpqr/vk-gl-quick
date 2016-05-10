@@ -294,13 +294,12 @@ void VulkanRenderer::init()
     if (err != VK_SUCCESS)
         qFatal("Failed to create command pool: %d", err);
 
-    m_deviceLocalMemIndex = m_hostVisibleMemIndex = 0;
-    VkPhysicalDeviceMemoryProperties memProps;
-    vkGetPhysicalDeviceMemoryProperties(m_vkPhysDev, &memProps);
-    for (uint32_t i = 0; i < memProps.memoryTypeCount; ++i) {
-        if (memProps.memoryTypes[i].propertyFlags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)
-            m_deviceLocalMemIndex = i;
-        if (memProps.memoryTypes[i].propertyFlags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)
+    m_hostVisibleMemIndex = 0;
+    vkGetPhysicalDeviceMemoryProperties(m_vkPhysDev, &m_vkPhysDevMemProps);
+    for (uint32_t i = 0; i < m_vkPhysDevMemProps.memoryTypeCount; ++i) {
+        const VkMemoryType *memType = m_vkPhysDevMemProps.memoryTypes;
+        qDebug("phys dev mem prop %d: flags=0x%x", i, memType[i].propertyFlags);
+        if (memType[i].propertyFlags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)
             m_hostVisibleMemIndex = i;
     }
 
@@ -371,6 +370,14 @@ void VulkanRenderer::createRenderTarget(const QSize &size)
 
     VkMemoryRequirements colorMemReq;
     vkGetImageMemoryRequirements(m_vkDev, m_color, &colorMemReq);
+    unsigned memTypeIndex = 0;
+    if (colorMemReq.memoryTypeBits) {
+#if defined(Q_CC_GNU)
+        memTypeIndex = __builtin_ctz(colorMemReq.memoryTypeBits);
+#elif defined(Q_CC_MSVC)
+        _BitScanForward(&memTypeIndex, colorMemReq.memoryTypeBits);
+#endif
+    }
 
     VkMemoryRequirements dsMemReq;
     vkGetImageMemoryRequirements(m_vkDev, m_ds, &dsMemReq);
@@ -380,8 +387,8 @@ void VulkanRenderer::createRenderTarget(const QSize &size)
     memInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
     const VkDeviceSize dsOffset = alignedSize(colorMemReq.size, dsMemReq.alignment);
     memInfo.allocationSize = dsOffset + dsMemReq.size;
-    memInfo.memoryTypeIndex = m_deviceLocalMemIndex;
-    qDebug("allocating %llu bytes for color and depth-stencil", memInfo.allocationSize);
+    memInfo.memoryTypeIndex = memTypeIndex;
+    qDebug("allocating %lu bytes for color and depth-stencil", memInfo.allocationSize);
 
     err = vkAllocateMemory(m_vkDev, &memInfo, nullptr, &m_rtMem);
     if (err != VK_SUCCESS)
