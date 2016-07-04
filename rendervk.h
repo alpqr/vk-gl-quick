@@ -59,54 +59,13 @@
 
 class QQuickWindow;
 
-class VulkanRenderer : public QObject
+class VulkanRenderer
 {
-public:
-    VulkanRenderer(QQuickWindow *window);
-
-private slots:
-    void render();
-    void cleanup();
-
-private:
-    void init();
+protected:
+    void createDevice();
+    void releaseDevice();
     void createRenderTarget(const QSize &size);
     void releaseRenderTarget();
-    void present();
-
-    QQuickWindow *m_window;
-    bool m_inited = false;
-    QSize m_lastWindowSize;
-    VkInstance m_vkInst;
-    VkPhysicalDevice m_vkPhysDev;
-    VkPhysicalDeviceMemoryProperties m_vkPhysDevMemProps;
-    VkDevice m_vkDev;
-    VkQueue m_vkQueue;
-    VkCommandPool m_vkCmdPool;
-    uint32_t m_hostVisibleMemIndex;
-    VkSemaphore m_semRender;
-    VkSemaphore m_semPresent;
-    VkDeviceMemory m_rtMem = 0;
-    VkImage m_color = 0;
-    VkImageView m_colorView = 0;
-    VkImage m_ds = 0;
-    VkImageView m_dsView = 0;
-    VkRenderPass m_renderPass = 0;
-    VkFramebuffer m_fb = 0;
-
-    typedef PFN_vkVoidFunction (QOPENGLF_APIENTRY * PFN_glGetVkProcAddrNV) (const GLchar *name);
-    typedef void (QOPENGLF_APIENTRY * PFN_glWaitVkSemaphoreNV) (GLuint64 vkSemaphore);
-    typedef void (QOPENGLF_APIENTRY * PFN_glSignalVkSemaphoreNV) (GLuint64 vkSemaphore);
-    typedef void (QOPENGLF_APIENTRY * PFN_glSignalVkFenceNV) (GLuint64 vkFence);
-    typedef void (QOPENGLF_APIENTRY * PFN_glDrawVkImageNV) (GLuint64 vkImage, GLuint sampler,
-                                                       GLfloat x0, GLfloat y0, GLfloat x1, GLfloat y1, GLfloat z,
-                                                       GLfloat s0, GLfloat t0, GLfloat s1, GLfloat t1);
-
-    PFN_glGetVkProcAddrNV glGetVkProcAddrNV;
-    PFN_glWaitVkSemaphoreNV glWaitVkSemaphoreNV;
-    PFN_glSignalVkSemaphoreNV glSignalVkSemaphoreNV;
-    PFN_glSignalVkFenceNV glSignalVkFenceNV;
-    PFN_glDrawVkImageNV glDrawVkImageNV;
 
     PFN_vkCreateInstance vkCreateInstance;
     PFN_vkDestroyInstance vkDestroyInstance;
@@ -245,6 +204,56 @@ private:
     PFN_vkCmdNextSubpass vkCmdNextSubpass;
     PFN_vkCmdEndRenderPass vkCmdEndRenderPass;
     PFN_vkCmdExecuteCommands vkCmdExecuteCommands;
+
+    VkInstance m_vkInst;
+    VkPhysicalDevice m_vkPhysDev;
+    VkPhysicalDeviceMemoryProperties m_vkPhysDevMemProps;
+    VkDevice m_vkDev;
+    VkQueue m_vkQueue;
+    VkCommandPool m_vkCmdPool;
+    uint32_t m_hostVisibleMemIndex;
+
+    VkDeviceMemory m_rtMem = 0;
+    VkImage m_color = 0;
+    VkImageView m_colorView = 0;
+    VkImage m_ds = 0;
+    VkImageView m_dsView = 0;
+    VkRenderPass m_renderPass = 0;
+    VkFramebuffer m_fb = 0;
+};
+
+class VulkanGLRenderer : public QObject, public VulkanRenderer
+{
+public:
+    VulkanGLRenderer(QQuickWindow *window);
+
+private slots:
+    void render();
+    void cleanup();
+
+private:
+    void init();
+    void present();
+
+    QQuickWindow *m_window;
+    bool m_inited = false;
+    QSize m_lastWindowSize;
+    VkSemaphore m_semRender;
+    VkSemaphore m_semPresent;
+
+    typedef PFN_vkVoidFunction (QOPENGLF_APIENTRY * PFN_glGetVkProcAddrNV) (const GLchar *name);
+    typedef void (QOPENGLF_APIENTRY * PFN_glWaitVkSemaphoreNV) (GLuint64 vkSemaphore);
+    typedef void (QOPENGLF_APIENTRY * PFN_glSignalVkSemaphoreNV) (GLuint64 vkSemaphore);
+    typedef void (QOPENGLF_APIENTRY * PFN_glSignalVkFenceNV) (GLuint64 vkFence);
+    typedef void (QOPENGLF_APIENTRY * PFN_glDrawVkImageNV) (GLuint64 vkImage, GLuint sampler,
+                                                       GLfloat x0, GLfloat y0, GLfloat x1, GLfloat y1, GLfloat z,
+                                                       GLfloat s0, GLfloat t0, GLfloat s1, GLfloat t1);
+
+    PFN_glGetVkProcAddrNV glGetVkProcAddrNV;
+    PFN_glWaitVkSemaphoreNV glWaitVkSemaphoreNV;
+    PFN_glSignalVkSemaphoreNV glSignalVkSemaphoreNV;
+    PFN_glSignalVkFenceNV glSignalVkFenceNV;
+    PFN_glDrawVkImageNV glDrawVkImageNV;
 };
 
 #endif

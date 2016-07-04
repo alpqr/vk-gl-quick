@@ -57,7 +57,7 @@ int main(int argc, char **argv)
     QGuiApplication app(argc, argv);
 
     QQuickView view;
-    VulkanRenderer vkr(&view);
+    VulkanGLRenderer vkr(&view);
 
     view.setClearBeforeRendering(false);
     view.setResizeMode(QQuickView::SizeRootObjectToView);
