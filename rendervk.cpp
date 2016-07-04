@@ -51,6 +51,7 @@
 #include "rendervk.h"
 #include <QQuickWindow>
 #include <QOpenGLContext>
+#include <qalgorithms.h>
 
 VulkanRenderer::VulkanRenderer(QQuickWindow *window)
     : m_window(window)
@@ -370,14 +371,9 @@ void VulkanRenderer::createRenderTarget(const QSize &size)
 
     VkMemoryRequirements colorMemReq;
     vkGetImageMemoryRequirements(m_vkDev, m_color, &colorMemReq);
-    unsigned long memTypeIndex = 0;
-    if (colorMemReq.memoryTypeBits) {
-#if defined(Q_CC_GNU)
-        memTypeIndex = __builtin_ctz(colorMemReq.memoryTypeBits);
-#elif defined(Q_CC_MSVC)
-        _BitScanForward(&memTypeIndex, colorMemReq.memoryTypeBits);
-#endif
-    }
+    uint memTypeIndex = 0;
+    if (colorMemReq.memoryTypeBits)
+        memTypeIndex = qCountTrailingZeroBits(colorMemReq.memoryTypeBits);
 
     VkMemoryRequirements dsMemReq;
     vkGetImageMemoryRequirements(m_vkDev, m_ds, &dsMemReq);
