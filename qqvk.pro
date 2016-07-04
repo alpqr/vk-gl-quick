@@ -2,9 +2,11 @@ TEMPLATE = app
 QT += quick
 
 SOURCES = main.cpp \
-          rendervk.cpp
+          vulkanrenderer.cpp \
+          vulkanglrenderer.cpp
 
-HEADERS = rendervk.h
+HEADERS = vulkanrenderer.h \
+          vulkanglrenderer.h
 
 RESOURCES = qqvk.qrc
 OTHER_FILES = main.qml

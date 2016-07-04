@@ -48,22 +48,47 @@
 **
 ****************************************************************************/
 
-#include <QGuiApplication>
-#include <QQuickView>
-#include "vulkanglrenderer.h"
+#ifndef VULKANGLRENDERER_H
+#define VULKANGLRENDERER_H
 
-int main(int argc, char **argv)
+#include "vulkanrenderer.h"
+#include <QObject>
+#include <qopengl.h>
+
+class QQuickWindow;
+
+class VulkanGLRenderer : public QObject, public VulkanRenderer
 {
-    QGuiApplication app(argc, argv);
+public:
+    VulkanGLRenderer(QQuickWindow *window);
 
-    QQuickView view;
-    VulkanGLRenderer vkr(&view);
+private slots:
+    void onBeforeRendering();
+    void onInvalidate();
 
-    view.setClearBeforeRendering(false);
-    view.setResizeMode(QQuickView::SizeRootObjectToView);
-    view.setSource(QUrl("qrc:///main.qml"));
-    view.resize(1024, 768);
-    view.show();
+private:
+    void init();
+    void present();
 
-    return app.exec();
-}
+    QQuickWindow *m_window;
+    bool m_inited = false;
+    QSize m_lastWindowSize;
+    VkSemaphore m_semRender;
+    VkSemaphore m_semPresent;
+
+    typedef PFN_vkVoidFunction (QOPENGLF_APIENTRY * PFN_glGetVkProcAddrNV) (const GLchar *name);
+    typedef void (QOPENGLF_APIENTRY * PFN_glWaitVkSemaphoreNV) (GLuint64 vkSemaphore);
+    typedef void (QOPENGLF_APIENTRY * PFN_glSignalVkSemaphoreNV) (GLuint64 vkSemaphore);
+    typedef void (QOPENGLF_APIENTRY * PFN_glSignalVkFenceNV) (GLuint64 vkFence);
+    typedef void (QOPENGLF_APIENTRY * PFN_glDrawVkImageNV) (GLuint64 vkImage, GLuint sampler,
+                                                       GLfloat x0, GLfloat y0, GLfloat x1, GLfloat y1, GLfloat z,
+                                                       GLfloat s0, GLfloat t0, GLfloat s1, GLfloat t1);
+
+    PFN_glGetVkProcAddrNV glGetVkProcAddrNV;
+    PFN_glWaitVkSemaphoreNV glWaitVkSemaphoreNV;
+    PFN_glSignalVkSemaphoreNV glSignalVkSemaphoreNV;
+    PFN_glSignalVkFenceNV glSignalVkFenceNV;
+    PFN_glDrawVkImageNV glDrawVkImageNV;
+};
+
+#endif

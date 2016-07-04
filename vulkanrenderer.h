@@ -48,16 +48,13 @@
 **
 ****************************************************************************/
 
-#ifndef RENDERVK_H
-#define RENDERVK_H
+#ifndef VULKANRENDERER_H
+#define VULKANRENDERER_H
 
-#include <QObject>
 #include <QSize>
-#include <qopengl.h>
+
 #define VK_NO_PROTOTYPES
 #include <vulkan.h>
-
-class QQuickWindow;
 
 class VulkanRenderer
 {
@@ -66,6 +63,7 @@ protected:
     void releaseDevice();
     void createRenderTarget(const QSize &size);
     void releaseRenderTarget();
+    void render(const QSize &size);
 
     PFN_vkCreateInstance vkCreateInstance;
     PFN_vkDestroyInstance vkDestroyInstance;
@@ -220,40 +218,6 @@ protected:
     VkImageView m_dsView = 0;
     VkRenderPass m_renderPass = 0;
     VkFramebuffer m_fb = 0;
-};
-
-class VulkanGLRenderer : public QObject, public VulkanRenderer
-{
-public:
-    VulkanGLRenderer(QQuickWindow *window);
-
-private slots:
-    void render();
-    void cleanup();
-
-private:
-    void init();
-    void present();
-
-    QQuickWindow *m_window;
-    bool m_inited = false;
-    QSize m_lastWindowSize;
-    VkSemaphore m_semRender;
-    VkSemaphore m_semPresent;
-
-    typedef PFN_vkVoidFunction (QOPENGLF_APIENTRY * PFN_glGetVkProcAddrNV) (const GLchar *name);
-    typedef void (QOPENGLF_APIENTRY * PFN_glWaitVkSemaphoreNV) (GLuint64 vkSemaphore);
-    typedef void (QOPENGLF_APIENTRY * PFN_glSignalVkSemaphoreNV) (GLuint64 vkSemaphore);
-    typedef void (QOPENGLF_APIENTRY * PFN_glSignalVkFenceNV) (GLuint64 vkFence);
-    typedef void (QOPENGLF_APIENTRY * PFN_glDrawVkImageNV) (GLuint64 vkImage, GLuint sampler,
-                                                       GLfloat x0, GLfloat y0, GLfloat x1, GLfloat y1, GLfloat z,
-                                                       GLfloat s0, GLfloat t0, GLfloat s1, GLfloat t1);
-
-    PFN_glGetVkProcAddrNV glGetVkProcAddrNV;
-    PFN_glWaitVkSemaphoreNV glWaitVkSemaphoreNV;
-    PFN_glSignalVkSemaphoreNV glSignalVkSemaphoreNV;
-    PFN_glSignalVkFenceNV glSignalVkFenceNV;
-    PFN_glDrawVkImageNV glDrawVkImageNV;
 };
 
 #endif
