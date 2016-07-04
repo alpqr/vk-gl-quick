@@ -490,6 +490,17 @@ void VulkanRenderer::releaseRenderTarget()
         vkFreeMemory(m_vkDev, m_rtMem, nullptr);
         m_rtMem = 0;
     }
+    m_lastWindowSize = QSize();
+}
+
+static inline VkRect2D rect2D(const QRect &rect)
+{
+    VkRect2D r;
+    r.offset.x = rect.x();
+    r.offset.y = rect.y();
+    r.extent.width = rect.width();
+    r.extent.height = rect.height();
+    return r;
 }
 
 void VulkanRenderer::render()
@@ -498,12 +509,12 @@ void VulkanRenderer::render()
 
     const QSize windowSize = m_window->size();
     if (windowSize != m_lastWindowSize) {
+        vkDeviceWaitIdle(m_vkDev);
+        releaseRenderTarget();
         m_lastWindowSize = windowSize;
         if (windowSize.isEmpty())
             return;
-        vkDeviceWaitIdle(m_vkDev);
         qDebug("resize %dx%d", windowSize.width(), windowSize.height());
-        releaseRenderTarget();
         createRenderTarget(windowSize);
     }
 
@@ -524,8 +535,7 @@ void VulkanRenderer::render()
     rpBeginInfo.pNext = nullptr;
     rpBeginInfo.renderPass = m_renderPass;
     rpBeginInfo.framebuffer = m_fb;
-    rpBeginInfo.renderArea.extent.width = windowSize.width();
-    rpBeginInfo.renderArea.extent.height = windowSize.height();
+    rpBeginInfo.renderArea = rect2D(QRect(QPoint(0, 0), windowSize));
     rpBeginInfo.clearValueCount = 1;
     VkClearColorValue clearColor = { 0.0f, 1.0f, 0.0f, 1.0f };
     VkClearValue clearValue;
