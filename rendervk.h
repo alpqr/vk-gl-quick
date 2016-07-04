@@ -52,6 +52,7 @@
 #define RENDERVK_H
 
 #include <QObject>
+#include <QSize>
 #include <qopengl.h>
 #define VK_NO_PROTOTYPES
 #include <vulkan.h>
@@ -62,7 +63,6 @@ class VulkanRenderer : public QObject
 {
 public:
     VulkanRenderer(QQuickWindow *window);
-    void resize();
 
 private slots:
     void render();
@@ -76,6 +76,7 @@ private:
 
     QQuickWindow *m_window;
     bool m_inited = false;
+    QSize m_lastWindowSize;
     VkInstance m_vkInst;
     VkPhysicalDevice m_vkPhysDev;
     VkPhysicalDeviceMemoryProperties m_vkPhysDevMemProps;

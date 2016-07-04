@@ -52,24 +52,12 @@
 #include <QQuickView>
 #include "rendervk.h"
 
-class View : public QQuickView
-{
-public:
-    void resizeEvent(QResizeEvent *e) override {
-        if (vkr)
-            vkr->resize();
-        QQuickView::resizeEvent(e);
-    }
-    VulkanRenderer *vkr = nullptr;
-};
-
 int main(int argc, char **argv)
 {
     QGuiApplication app(argc, argv);
 
-    View view;
+    QQuickView view;
     VulkanRenderer vkr(&view);
-    view.vkr = &vkr;
 
     view.setClearBeforeRendering(false);
     view.setResizeMode(QQuickView::SizeRootObjectToView);

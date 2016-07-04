@@ -61,24 +61,14 @@ VulkanRenderer::VulkanRenderer(QQuickWindow *window)
     connect(window, &QQuickWindow::sceneGraphAboutToStop, this, &VulkanRenderer::cleanup, Qt::DirectConnection);
 }
 
-void VulkanRenderer::resize()
-{
-    if (!m_inited || m_window->size().isEmpty())
-        return;
-
-    vkDeviceWaitIdle(m_vkDev);
-
-    qDebug("resize %dx%d", m_window->width(), m_window->height());
-    releaseRenderTarget();
-    createRenderTarget(m_window->size());
-}
-
 void VulkanRenderer::init()
 {
     if (m_inited)
         return;
 
     QOpenGLContext *ctx = QOpenGLContext::currentContext();
+    if (!ctx)
+        qFatal("No OpenGL context");
 
     if (!ctx->hasExtension("GL_NV_draw_vulkan_image"))
         qFatal("This example requires the GL_NV_draw_vulkan_image extension");
@@ -317,8 +307,6 @@ void VulkanRenderer::init()
     if (err != VK_SUCCESS)
         qFatal("Failed to create present semaphore");
 
-    createRenderTarget(m_window->size());
-
     m_inited = true;
     qDebug("VK-on-GL renderer initialized");
 }
@@ -508,6 +496,17 @@ void VulkanRenderer::render()
 {
     init();
 
+    const QSize windowSize = m_window->size();
+    if (windowSize != m_lastWindowSize) {
+        m_lastWindowSize = windowSize;
+        if (windowSize.isEmpty())
+            return;
+        vkDeviceWaitIdle(m_vkDev);
+        qDebug("resize %dx%d", windowSize.width(), windowSize.height());
+        releaseRenderTarget();
+        createRenderTarget(windowSize);
+    }
+
     vkResetCommandPool(m_vkDev, m_vkCmdPool, 0);
     VkCommandBuffer cmdBuf;
     VkCommandBufferAllocateInfo cmdBufInfo = {
@@ -525,8 +524,8 @@ void VulkanRenderer::render()
     rpBeginInfo.pNext = nullptr;
     rpBeginInfo.renderPass = m_renderPass;
     rpBeginInfo.framebuffer = m_fb;
-    rpBeginInfo.renderArea.extent.width = m_window->width();
-    rpBeginInfo.renderArea.extent.height = m_window->height();
+    rpBeginInfo.renderArea.extent.width = windowSize.width();
+    rpBeginInfo.renderArea.extent.height = windowSize.height();
     rpBeginInfo.clearValueCount = 1;
     VkClearColorValue clearColor = { 0.0f, 1.0f, 0.0f, 1.0f };
     VkClearValue clearValue;
@@ -537,7 +536,7 @@ void VulkanRenderer::render()
 
     vkCmdBeginRenderPass(cmdBuf, &rpBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
 
-    VkViewport viewport = { 0, 0, float(m_window->width()), float(m_window->height()), 0, 1 };
+    VkViewport viewport = { 0, 0, float(windowSize.width()), float(windowSize.height()), 0, 1 };
     vkCmdSetViewport(cmdBuf, 0, 1, &viewport);
 
     VkImageSubresourceRange subResRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
@@ -563,6 +562,9 @@ void VulkanRenderer::render()
 
 void VulkanRenderer::present()
 {
+    if (m_lastWindowSize.isEmpty())
+        return;
+
     VkSubmitInfo submitInfo;
     memset(&submitInfo, 0, sizeof(submitInfo));
     submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
@@ -572,7 +574,7 @@ void VulkanRenderer::present()
 
     glWaitVkSemaphoreNV(reinterpret_cast<GLuint64>(m_semRender));
     glDrawVkImageNV(reinterpret_cast<GLuint64>(m_color), 0,
-                    0, 0, m_window->width(), m_window->height(), 0,
+                    0, 0, m_lastWindowSize.width(), m_lastWindowSize.height(), 0,
                     0, 1, 1, 0);
     glSignalVkSemaphoreNV(reinterpret_cast<GLuint64>(m_semPresent));
 
