@@ -52,6 +52,7 @@
 #define VULKANRENDERER_H
 
 #include <QSize>
+#include <QWindow>
 
 #ifdef Q_OS_WIN
 #define VK_USE_PLATFORM_WIN32_KHR
@@ -62,6 +63,8 @@
 class VulkanRenderer
 {
 protected:
+    VulkanRenderer(QWindow *window = nullptr) : m_window(window) { }
+
     void createDevice();
     void releaseDevice();
     void createRenderTarget(const QSize &size);
@@ -209,6 +212,28 @@ protected:
     PFN_vkCreateDebugReportCallbackEXT vkCreateDebugReportCallbackEXT;
     PFN_vkDestroyDebugReportCallbackEXT vkDestroyDebugReportCallbackEXT;
     PFN_vkDebugReportMessageEXT vkDebugReportMessageEXT;
+
+#ifdef Q_OS_WIN
+    PFN_vkCreateWin32SurfaceKHR vkCreateWin32SurfaceKHR;
+    PFN_vkGetPhysicalDeviceWin32PresentationSupportKHR vkGetPhysicalDeviceWin32PresentationSupportKHR;
+#endif
+
+    PFN_vkDestroySurfaceKHR vkDestroySurfaceKHR;
+    PFN_vkGetPhysicalDeviceSurfaceSupportKHR vkGetPhysicalDeviceSurfaceSupportKHR;
+    PFN_vkGetPhysicalDeviceSurfaceCapabilitiesKHR vkGetPhysicalDeviceSurfaceCapabilitiesKHR;
+    PFN_vkGetPhysicalDeviceSurfaceFormatsKHR vkGetPhysicalDeviceSurfaceFormatsKHR;
+    PFN_vkGetPhysicalDeviceSurfacePresentModesKHR vkGetPhysicalDeviceSurfacePresentModesKHR;
+
+    PFN_vkCreateSwapchainKHR vkCreateSwapchainKHR;
+    PFN_vkDestroySwapchainKHR vkDestroySwapchainKHR;
+    PFN_vkGetSwapchainImagesKHR vkGetSwapchainImagesKHR;
+    PFN_vkAcquireNextImageKHR vkAcquireNextImageKHR;
+    PFN_vkQueuePresentKHR vkQueuePresentKHR;
+
+    QWindow *m_window;
+    VkSurfaceKHR m_surface;
+    VkFormat m_colorFormat;
+    VkSwapchainKHR m_swapChain;
 
     VkInstance m_vkInst;
     VkPhysicalDevice m_vkPhysDev;

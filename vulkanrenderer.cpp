@@ -97,7 +97,7 @@ void VulkanRenderer::createDevice()
 
     uint32_t layerCount = 0;
     vkEnumerateInstanceLayerProperties(&layerCount, nullptr);
-    qDebug("%d layers", layerCount);
+    qDebug("%d instance layers", layerCount);
     QVector<char *> enabledLayers;
     if (layerCount) {
         QVector<VkLayerProperties> layerProps(layerCount);
@@ -108,7 +108,7 @@ void VulkanRenderer::createDevice()
         }
     }
     if (!enabledLayers.isEmpty())
-        qDebug() << "enabling layers" << enabledLayers;
+        qDebug() << "enabling instance layers" << enabledLayers;
 
     m_hasDebug = false;
     uint32_t extCount = 0;
@@ -139,6 +139,8 @@ void VulkanRenderer::createDevice()
     if (!enabledLayers.isEmpty()) {
         instInfo.enabledLayerCount = enabledLayers.count();
         instInfo.ppEnabledLayerNames = enabledLayers.constData();
+    }
+    if (!enabledExtensions.isEmpty()) {
         instInfo.enabledExtensionCount = enabledExtensions.count();
         instInfo.ppEnabledExtensionNames = enabledExtensions.constData();
     }
@@ -167,6 +169,27 @@ void VulkanRenderer::createDevice()
         }
     }
 
+    if (m_window) {
+        vkDestroySurfaceKHR = reinterpret_cast<PFN_vkDestroySurfaceKHR>(vkGetInstanceProcAddr(m_vkInst, "vkDestroySurfaceKHR"));
+        vkGetPhysicalDeviceSurfaceSupportKHR = reinterpret_cast<PFN_vkGetPhysicalDeviceSurfaceSupportKHR>(vkGetInstanceProcAddr(m_vkInst, "vkGetPhysicalDeviceSurfaceSupportKHR"));
+        vkGetPhysicalDeviceSurfaceCapabilitiesKHR = reinterpret_cast<PFN_vkGetPhysicalDeviceSurfaceCapabilitiesKHR>(vkGetInstanceProcAddr(m_vkInst, "vkGetPhysicalDeviceSurfaceCapabilitiesKHR"));
+        vkGetPhysicalDeviceSurfaceFormatsKHR = reinterpret_cast<PFN_vkGetPhysicalDeviceSurfaceFormatsKHR>(vkGetInstanceProcAddr(m_vkInst, "vkGetPhysicalDeviceSurfaceFormatsKHR"));
+        vkGetPhysicalDeviceSurfacePresentModesKHR = reinterpret_cast<PFN_vkGetPhysicalDeviceSurfacePresentModesKHR>(vkGetInstanceProcAddr(m_vkInst, "vkGetPhysicalDeviceSurfacePresentModesKHR"));
+#ifdef Q_OS_WIN
+        vkCreateWin32SurfaceKHR = reinterpret_cast<PFN_vkCreateWin32SurfaceKHR>(vkGetInstanceProcAddr(m_vkInst, "vkCreateWin32SurfaceKHR"));
+        vkGetPhysicalDeviceWin32PresentationSupportKHR = reinterpret_cast<PFN_vkGetPhysicalDeviceWin32PresentationSupportKHR>(vkGetInstanceProcAddr(m_vkInst, "vkGetPhysicalDeviceWin32PresentationSupportKHR"));
+
+        VkWin32SurfaceCreateInfoKHR surfaceInfo;
+        memset(&surfaceInfo, 0, sizeof(surfaceInfo));
+        surfaceInfo.sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR;
+        surfaceInfo.hinstance = GetModuleHandle(nullptr);
+        surfaceInfo.hwnd = HWND(m_window->winId());
+        err = vkCreateWin32SurfaceKHR(m_vkInst, &surfaceInfo, nullptr, &m_surface);
+        if (err != VK_SUCCESS)
+            qFatal("Failed to create Win32 surface: %d", err);
+#endif
+    }
+
     uint32_t devCount = 0;
     vkEnumeratePhysicalDevices(m_vkInst, &devCount, nullptr);
     qDebug("%d physical devices", devCount);
@@ -183,6 +206,24 @@ void VulkanRenderer::createDevice()
     qDebug("Device name: %s\nDriver version: %d.%d.%d", physDevProps.deviceName,
            VK_VERSION_MAJOR(physDevProps.driverVersion), VK_VERSION_MINOR(physDevProps.driverVersion),
            VK_VERSION_PATCH(physDevProps.driverVersion));
+
+    layerCount = 0;
+    vkEnumerateDeviceLayerProperties(m_vkPhysDev, &layerCount, nullptr);
+    qDebug("%d device layers", layerCount);
+    enabledLayers.clear();
+    if (layerCount) {
+        QVector<VkLayerProperties> layerProps(layerCount);
+        vkEnumerateDeviceLayerProperties(m_vkPhysDev, &layerCount, layerProps.data());
+        for (const VkLayerProperties &p : qAsConst(layerProps)) {
+            // If the validation layer is enabled for the instance, it has to
+            // be enabled for the device too, otherwise be prepared for
+            // mysterious errors...
+            if (!strcmp(p.layerName, "VK_LAYER_LUNARG_standard_validation"))
+                enabledLayers.append(strdup(p.layerName));
+        }
+    }
+    if (!enabledLayers.isEmpty())
+        qDebug() << "enabling device layers" << enabledLayers;
 
     extCount = 0;
     vkEnumerateDeviceExtensionProperties(m_vkPhysDev, nullptr, &extCount, nullptr);
@@ -206,30 +247,51 @@ void VulkanRenderer::createDevice()
     vkGetPhysicalDeviceQueueFamilyProperties(m_vkPhysDev, &queueCount, nullptr);
     QVector<VkQueueFamilyProperties> queueFamilyProps(queueCount);
     vkGetPhysicalDeviceQueueFamilyProperties(m_vkPhysDev, &queueCount, queueFamilyProps.data());
-    uint32_t gfxQueueFamilyIdx = 0;
+    uint32_t gfxQueueFamilyIdx = -1;
     for (int i = 0; i < queueFamilyProps.count(); ++i) {
         qDebug("queue family %d: flags=0x%x count=%d", i, queueFamilyProps[i].queueFlags, queueFamilyProps[i].queueCount);
-        if (queueFamilyProps[i].queueFlags & VK_QUEUE_GRAPHICS_BIT)
+        bool ok = (queueFamilyProps[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) != 0;
+        if (m_window) {
+#ifdef Q_OS_WIN
+            ok |= bool(vkGetPhysicalDeviceWin32PresentationSupportKHR(m_vkPhysDev, i));
+#endif
+            VkBool32 supported = false;
+            vkGetPhysicalDeviceSurfaceSupportKHR(m_vkPhysDev, i, m_surface, &supported);
+            ok |= bool(supported);
+        }
+        if (ok)
             gfxQueueFamilyIdx = i;
     }
+    if (gfxQueueFamilyIdx == -1)
+        qFatal("No presentable graphics queue family found");
 
     VkDeviceQueueCreateInfo queueInfo;
     memset(&queueInfo, 0, sizeof(queueInfo));
+    queueInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
     queueInfo.queueFamilyIndex = gfxQueueFamilyIdx;
     queueInfo.queueCount = 1;
+    const float prio[] = { 0 };
+    queueInfo.pQueuePriorities = prio;
 
     VkDeviceCreateInfo devInfo;
     memset(&devInfo, 0, sizeof(devInfo));
     devInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
     devInfo.queueCreateInfoCount = 1;
     devInfo.pQueueCreateInfos = &queueInfo;
-    devInfo.enabledExtensionCount = enabledExtensions.count();
-    devInfo.ppEnabledExtensionNames = enabledExtensions.constData();
+    if (!enabledLayers.isEmpty()) {
+        devInfo.enabledLayerCount = enabledLayers.count();
+        devInfo.ppEnabledLayerNames = enabledLayers.constData();
+    }
+    if (!enabledExtensions.isEmpty()) {
+        devInfo.enabledExtensionCount = enabledExtensions.count();
+        devInfo.ppEnabledExtensionNames = enabledExtensions.constData();
+    }
 
     err = vkCreateDevice(m_vkPhysDev, &devInfo, nullptr, &m_vkDev);
     if (err != VK_SUCCESS)
         qFatal("Failed to create device: %d", err);
 
+    for (auto s : enabledLayers) free(s);
     for (auto s : enabledExtensions) free(s);
 
     vkGetDeviceQueue(m_vkDev, gfxQueueFamilyIdx, 0, &m_vkQueue);
@@ -250,11 +312,72 @@ void VulkanRenderer::createDevice()
         if (memType[i].propertyFlags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)
             m_hostVisibleMemIndex = i;
     }
+
+    m_colorFormat = VK_FORMAT_B8G8R8A8_UNORM;
+    if (m_window) {
+        vkCreateSwapchainKHR = reinterpret_cast<PFN_vkCreateSwapchainKHR>(vkGetDeviceProcAddr(m_vkDev, "vkCreateSwapchainKHR"));
+        vkDestroySwapchainKHR = reinterpret_cast<PFN_vkDestroySwapchainKHR>(vkGetDeviceProcAddr(m_vkDev, "vkDestroySwapchainKHR"));
+        vkGetSwapchainImagesKHR = reinterpret_cast<PFN_vkGetSwapchainImagesKHR>(vkGetDeviceProcAddr(m_vkDev, "vkGetSwapchainImagesKHR"));
+        vkAcquireNextImageKHR = reinterpret_cast<PFN_vkAcquireNextImageKHR>(vkGetDeviceProcAddr(m_vkDev, "vkAcquireNextImageKHR"));
+        vkQueuePresentKHR = reinterpret_cast<PFN_vkQueuePresentKHR>(vkGetDeviceProcAddr(m_vkDev, "vkQueuePresentKHR"));
+
+        VkColorSpaceKHR colorSpace = VkColorSpaceKHR(0);
+        uint32_t formatCount = 0;
+        vkGetPhysicalDeviceSurfaceFormatsKHR(m_vkPhysDev, m_surface, &formatCount, nullptr);
+        if (formatCount) {
+            QVector<VkSurfaceFormatKHR> formats(formatCount);
+            vkGetPhysicalDeviceSurfaceFormatsKHR(m_vkPhysDev, m_surface, &formatCount, formats.data());
+            if (formats[0].format != VK_FORMAT_UNDEFINED) {
+                m_colorFormat = formats[0].format;
+                colorSpace = formats[0].colorSpace;
+            }
+        }
+
+        VkSurfaceCapabilitiesKHR surfaceCaps;
+        vkGetPhysicalDeviceSurfaceCapabilitiesKHR(m_vkPhysDev, m_surface, &surfaceCaps);
+        uint32_t bufferCount = 2;
+        if (surfaceCaps.maxImageCount)
+            bufferCount = qBound(surfaceCaps.minImageCount, bufferCount, surfaceCaps.maxImageCount);
+
+        VkExtent2D bufferSize = surfaceCaps.currentExtent;
+        if (bufferSize.width == uint32_t(-1))
+            bufferSize.width = m_window->size().width();
+        if (bufferSize.height == uint32_t(-1))
+            bufferSize.height = m_window->size().height();
+
+        VkSurfaceTransformFlagBitsKHR preTransform = surfaceCaps.currentTransform;
+        VkPresentModeKHR presentMode = VK_PRESENT_MODE_FIFO_KHR;
+
+        VkSwapchainCreateInfoKHR swapChainInfo;
+        memset(&swapChainInfo, 0, sizeof(swapChainInfo));
+        swapChainInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
+        swapChainInfo.surface = m_surface;
+        swapChainInfo.minImageCount = bufferCount;
+        swapChainInfo.imageFormat = m_colorFormat;
+        swapChainInfo.imageColorSpace = colorSpace;
+        swapChainInfo.imageExtent = bufferSize;
+        swapChainInfo.imageArrayLayers = 1;
+        swapChainInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+        swapChainInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        swapChainInfo.preTransform = preTransform;
+        swapChainInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+        swapChainInfo.presentMode = presentMode;
+        swapChainInfo.clipped = true;
+
+        err = vkCreateSwapchainKHR(m_vkDev, &swapChainInfo, nullptr, &m_swapChain);
+        if (err != VK_SUCCESS)
+            qFatal("Failed to create swap chain: %d", err);
+    }
 }
 
 void VulkanRenderer::releaseDevice()
 {
     vkDestroyCommandPool(m_vkDev, m_vkCmdPool, nullptr);
+
+    if (m_window) {
+        vkDestroySwapchainKHR(m_vkDev, m_swapChain, nullptr);
+        vkDestroySurfaceKHR(m_vkInst, m_surface, nullptr);
+    }
 
     vkDestroyDevice(m_vkDev, nullptr);
 
@@ -270,7 +393,7 @@ void VulkanRenderer::createRenderTarget(const QSize &size)
     memset(&imgInfo, 0, sizeof(imgInfo));
     imgInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
     imgInfo.imageType = VK_IMAGE_TYPE_2D;
-    imgInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
+    imgInfo.format = m_colorFormat;
     imgInfo.extent.width = size.width();
     imgInfo.extent.height = size.height();
     imgInfo.mipLevels = 1;
@@ -322,7 +445,7 @@ void VulkanRenderer::createRenderTarget(const QSize &size)
     imgViewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
     imgViewInfo.image = m_color;
     imgViewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    imgViewInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
+    imgViewInfo.format = m_colorFormat;
     imgViewInfo.components.r = VK_COMPONENT_SWIZZLE_R;
     imgViewInfo.components.g = VK_COMPONENT_SWIZZLE_G;
     imgViewInfo.components.b = VK_COMPONENT_SWIZZLE_B;
@@ -341,7 +464,7 @@ void VulkanRenderer::createRenderTarget(const QSize &size)
 
     VkAttachmentDescription attDesc[2];
     memset(attDesc, 0, sizeof(attDesc));
-    attDesc[0].format = VK_FORMAT_R8G8B8A8_UNORM;
+    attDesc[0].format = m_colorFormat;
     attDesc[0].samples = VK_SAMPLE_COUNT_1_BIT;
     attDesc[0].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
     attDesc[0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;

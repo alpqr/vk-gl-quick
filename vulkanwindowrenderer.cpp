@@ -52,7 +52,7 @@
 #include <QLibrary>
 
 VulkanWindowRenderer::VulkanWindowRenderer(QWindow *window)
-    : m_window(window),
+    : VulkanRenderer(window),
       m_vulkanLib(QStringLiteral("vulkan-1"))
 {
     if (!m_vulkanLib.load())

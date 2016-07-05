@@ -52,7 +52,6 @@
 #define VULKANWINDOWRENDERER_H
 
 #include "vulkanrenderer.h"
-#include <QWindow>
 #include <QLibrary>
 
 class VulkanWindowRenderer : public QObject, public VulkanRenderer
@@ -67,7 +66,6 @@ private:
     bool eventFilter(QObject *watched, QEvent *event) override;
 
     bool m_inited = false;
-    QWindow *m_window;
     QLibrary m_vulkanLib;
 };
 
