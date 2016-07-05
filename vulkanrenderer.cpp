@@ -320,54 +320,66 @@ void VulkanRenderer::createDevice()
         vkGetSwapchainImagesKHR = reinterpret_cast<PFN_vkGetSwapchainImagesKHR>(vkGetDeviceProcAddr(m_vkDev, "vkGetSwapchainImagesKHR"));
         vkAcquireNextImageKHR = reinterpret_cast<PFN_vkAcquireNextImageKHR>(vkGetDeviceProcAddr(m_vkDev, "vkAcquireNextImageKHR"));
         vkQueuePresentKHR = reinterpret_cast<PFN_vkQueuePresentKHR>(vkGetDeviceProcAddr(m_vkDev, "vkQueuePresentKHR"));
-
-        VkColorSpaceKHR colorSpace = VkColorSpaceKHR(0);
-        uint32_t formatCount = 0;
-        vkGetPhysicalDeviceSurfaceFormatsKHR(m_vkPhysDev, m_surface, &formatCount, nullptr);
-        if (formatCount) {
-            QVector<VkSurfaceFormatKHR> formats(formatCount);
-            vkGetPhysicalDeviceSurfaceFormatsKHR(m_vkPhysDev, m_surface, &formatCount, formats.data());
-            if (formats[0].format != VK_FORMAT_UNDEFINED) {
-                m_colorFormat = formats[0].format;
-                colorSpace = formats[0].colorSpace;
-            }
-        }
-
-        VkSurfaceCapabilitiesKHR surfaceCaps;
-        vkGetPhysicalDeviceSurfaceCapabilitiesKHR(m_vkPhysDev, m_surface, &surfaceCaps);
-        uint32_t bufferCount = 2;
-        if (surfaceCaps.maxImageCount)
-            bufferCount = qBound(surfaceCaps.minImageCount, bufferCount, surfaceCaps.maxImageCount);
-
-        VkExtent2D bufferSize = surfaceCaps.currentExtent;
-        if (bufferSize.width == uint32_t(-1))
-            bufferSize.width = m_window->size().width();
-        if (bufferSize.height == uint32_t(-1))
-            bufferSize.height = m_window->size().height();
-
-        VkSurfaceTransformFlagBitsKHR preTransform = surfaceCaps.currentTransform;
-        VkPresentModeKHR presentMode = VK_PRESENT_MODE_FIFO_KHR;
-
-        VkSwapchainCreateInfoKHR swapChainInfo;
-        memset(&swapChainInfo, 0, sizeof(swapChainInfo));
-        swapChainInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
-        swapChainInfo.surface = m_surface;
-        swapChainInfo.minImageCount = bufferCount;
-        swapChainInfo.imageFormat = m_colorFormat;
-        swapChainInfo.imageColorSpace = colorSpace;
-        swapChainInfo.imageExtent = bufferSize;
-        swapChainInfo.imageArrayLayers = 1;
-        swapChainInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
-        swapChainInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
-        swapChainInfo.preTransform = preTransform;
-        swapChainInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
-        swapChainInfo.presentMode = presentMode;
-        swapChainInfo.clipped = true;
-
-        err = vkCreateSwapchainKHR(m_vkDev, &swapChainInfo, nullptr, &m_swapChain);
-        if (err != VK_SUCCESS)
-            qFatal("Failed to create swap chain: %d", err);
     }
+}
+
+void VulkanRenderer::recreateSwapChain()
+{
+    Q_ASSERT(m_window);
+
+    VkColorSpaceKHR colorSpace = VkColorSpaceKHR(0);
+    uint32_t formatCount = 0;
+    vkGetPhysicalDeviceSurfaceFormatsKHR(m_vkPhysDev, m_surface, &formatCount, nullptr);
+    if (formatCount) {
+        QVector<VkSurfaceFormatKHR> formats(formatCount);
+        vkGetPhysicalDeviceSurfaceFormatsKHR(m_vkPhysDev, m_surface, &formatCount, formats.data());
+        if (formats[0].format != VK_FORMAT_UNDEFINED) {
+            m_colorFormat = formats[0].format;
+            colorSpace = formats[0].colorSpace;
+        }
+    }
+
+    VkSurfaceCapabilitiesKHR surfaceCaps;
+    vkGetPhysicalDeviceSurfaceCapabilitiesKHR(m_vkPhysDev, m_surface, &surfaceCaps);
+    uint32_t bufferCount = 2;
+    if (surfaceCaps.maxImageCount)
+        bufferCount = qBound(surfaceCaps.minImageCount, bufferCount, surfaceCaps.maxImageCount);
+
+    VkExtent2D bufferSize = surfaceCaps.currentExtent;
+    if (bufferSize.width == uint32_t(-1))
+        bufferSize.width = m_window->size().width();
+    if (bufferSize.height == uint32_t(-1))
+        bufferSize.height = m_window->size().height();
+
+    VkSurfaceTransformFlagBitsKHR preTransform = surfaceCaps.currentTransform;
+    VkPresentModeKHR presentMode = VK_PRESENT_MODE_FIFO_KHR;
+
+    VkSwapchainKHR oldSwapChain = m_swapChain;
+    VkSwapchainCreateInfoKHR swapChainInfo;
+    memset(&swapChainInfo, 0, sizeof(swapChainInfo));
+    swapChainInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
+    swapChainInfo.surface = m_surface;
+    swapChainInfo.minImageCount = bufferCount;
+    swapChainInfo.imageFormat = m_colorFormat;
+    swapChainInfo.imageColorSpace = colorSpace;
+    swapChainInfo.imageExtent = bufferSize;
+    swapChainInfo.imageArrayLayers = 1;
+    swapChainInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+    swapChainInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    swapChainInfo.preTransform = preTransform;
+    swapChainInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+    swapChainInfo.presentMode = presentMode;
+    swapChainInfo.clipped = true;
+    swapChainInfo.oldSwapchain = oldSwapChain;
+
+    qDebug("creating new swap chain of %d buffers, size %dx%d", bufferCount, bufferSize.width, bufferSize.height);
+
+    VkResult err = vkCreateSwapchainKHR(m_vkDev, &swapChainInfo, nullptr, &m_swapChain);
+    if (err != VK_SUCCESS)
+        qFatal("Failed to create swap chain: %d", err);
+
+    if (oldSwapChain != VK_NULL_HANDLE)
+        vkDestroySwapchainKHR(m_vkDev, oldSwapChain, nullptr);
 }
 
 void VulkanRenderer::releaseDevice()
@@ -375,7 +387,10 @@ void VulkanRenderer::releaseDevice()
     vkDestroyCommandPool(m_vkDev, m_vkCmdPool, nullptr);
 
     if (m_window) {
-        vkDestroySwapchainKHR(m_vkDev, m_swapChain, nullptr);
+        if (m_swapChain != VK_NULL_HANDLE) {
+            vkDestroySwapchainKHR(m_vkDev, m_swapChain, nullptr);
+            m_swapChain = VK_NULL_HANDLE;
+        }
         vkDestroySurfaceKHR(m_vkInst, m_surface, nullptr);
     }
 

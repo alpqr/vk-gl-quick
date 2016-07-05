@@ -73,7 +73,13 @@ bool VulkanWindowRenderer::eventFilter(QObject *, QEvent *event)
             if (!m_inited)
                 init();
         } else if (m_inited) {
+            vkDeviceWaitIdle(m_vkDev);
             cleanup();
+        }
+    } else if (event->type() == QEvent::Resize) {
+        if (m_inited && m_window->isExposed()) {
+            vkDeviceWaitIdle(m_vkDev);
+            recreateSwapChain();
         }
     }
 
@@ -224,6 +230,7 @@ void VulkanWindowRenderer::init()
     vkCmdExecuteCommands = reinterpret_cast<PFN_vkCmdExecuteCommands>(m_vulkanLib.resolve("vkCmdExecuteCommands"));
 
     createDevice();
+    recreateSwapChain();
 
     m_inited = true;
     qDebug("VK window renderer initialized");

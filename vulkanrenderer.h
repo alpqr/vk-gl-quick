@@ -66,6 +66,7 @@ protected:
     VulkanRenderer(QWindow *window = nullptr) : m_window(window) { }
 
     void createDevice();
+    void recreateSwapChain();
     void releaseDevice();
     void createRenderTarget(const QSize &size);
     void releaseRenderTarget();
@@ -233,7 +234,7 @@ protected:
     QWindow *m_window;
     VkSurfaceKHR m_surface;
     VkFormat m_colorFormat;
-    VkSwapchainKHR m_swapChain;
+    VkSwapchainKHR m_swapChain = VK_NULL_HANDLE;
 
     VkInstance m_vkInst;
     VkPhysicalDevice m_vkPhysDev;
