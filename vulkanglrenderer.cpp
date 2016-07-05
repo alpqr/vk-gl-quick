@@ -56,7 +56,7 @@ VulkanGLRenderer::VulkanGLRenderer(QQuickWindow *window)
 // 'window' in the base class is left null, meaning all surface and swapchain stuff is skipped
     : m_quickWindow(window)
 {
-    connect(window, &QQuickWindow::beforeRendering, this, &VulkanGLRenderer::onBeforeRendering, Qt::DirectConnection);
+    connect(window, &QQuickWindow::beforeRendering, this, &VulkanGLRenderer::onBeforeGLRendering, Qt::DirectConnection);
     connect(window, &QQuickWindow::sceneGraphInvalidated, this, &VulkanGLRenderer::onInvalidate, Qt::DirectConnection);
     connect(window, &QQuickWindow::sceneGraphAboutToStop, this, &VulkanGLRenderer::onInvalidate, Qt::DirectConnection);
 }
@@ -256,7 +256,7 @@ void VulkanGLRenderer::onInvalidate()
     releaseDevice();
 }
 
-void VulkanGLRenderer::onBeforeRendering()
+void VulkanGLRenderer::onBeforeGLRendering()
 {
     init();
 

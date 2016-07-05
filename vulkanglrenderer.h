@@ -63,7 +63,7 @@ public:
     VulkanGLRenderer(QQuickWindow *window);
 
 private slots:
-    void onBeforeRendering();
+    void onBeforeGLRendering();
     void onInvalidate();
 
 private:
