@@ -53,6 +53,9 @@
 
 #include <QSize>
 
+#ifdef Q_OS_WIN
+#define VK_USE_PLATFORM_WIN32_KHR
+#endif
 #define VK_NO_PROTOTYPES
 #include <vulkan.h>
 

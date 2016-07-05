@@ -48,34 +48,27 @@
 **
 ****************************************************************************/
 
-#include <QGuiApplication>
-#include <QQuickView>
-#include "vulkanglrenderer.h"
-#include "vulkanwindowrenderer.h"
+#ifndef VULKANWINDOWRENDERER_H
+#define VULKANWINDOWRENDERER_H
 
-int main(int argc, char **argv)
+#include "vulkanrenderer.h"
+#include <QWindow>
+#include <QLibrary>
+
+class VulkanWindowRenderer : public QObject, public VulkanRenderer
 {
-    QGuiApplication app(argc, argv);
+public:
+    VulkanWindowRenderer(QWindow *window);
+    ~VulkanWindowRenderer();
 
-    QScopedPointer<QWindow> window;
-    QScopedPointer<QQuickView> view;
-    QScopedPointer<VulkanGLRenderer> vkrgl;
-    QScopedPointer<VulkanWindowRenderer> vkrwin;
+private:
+    void init();
+    void cleanup();
+    bool eventFilter(QObject *watched, QEvent *event) override;
 
-    if (QCoreApplication::arguments().contains(QStringLiteral("--window"))) {
-        window.reset(new QWindow);
-        vkrwin.reset(new VulkanWindowRenderer(window.data()));
-        window->resize(1024, 768);
-        window->show();
-    } else {
-        view.reset(new QQuickView);
-        vkrgl.reset(new VulkanGLRenderer(view.data()));
-        view->setClearBeforeRendering(false);
-        view->setResizeMode(QQuickView::SizeRootObjectToView);
-        view->setSource(QUrl("qrc:///main.qml"));
-        view->resize(1024, 768);
-        view->show();
-    }
+    bool m_inited = false;
+    QWindow *m_window;
+    QLibrary m_vulkanLib;
+};
 
-    return app.exec();
-}
+#endif
