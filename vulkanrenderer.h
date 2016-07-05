@@ -206,6 +206,10 @@ protected:
     PFN_vkCmdEndRenderPass vkCmdEndRenderPass;
     PFN_vkCmdExecuteCommands vkCmdExecuteCommands;
 
+    PFN_vkCreateDebugReportCallbackEXT vkCreateDebugReportCallbackEXT;
+    PFN_vkDestroyDebugReportCallbackEXT vkDestroyDebugReportCallbackEXT;
+    PFN_vkDebugReportMessageEXT vkDebugReportMessageEXT;
+
     VkInstance m_vkInst;
     VkPhysicalDevice m_vkPhysDev;
     VkPhysicalDeviceMemoryProperties m_vkPhysDevMemProps;
@@ -213,6 +217,8 @@ protected:
     VkQueue m_vkQueue;
     VkCommandPool m_vkCmdPool;
     uint32_t m_hostVisibleMemIndex;
+    bool m_hasDebug;
+    VkDebugReportCallbackEXT m_debugCallback;
 
     VkDeviceMemory m_rtMem = 0;
     VkImage m_color = 0;

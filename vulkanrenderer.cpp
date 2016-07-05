@@ -52,6 +52,7 @@
 #include <qalgorithms.h>
 #include <QRect>
 #include <QVector>
+#include <QDebug>
 
 static inline VkDeviceSize alignedSize(VkDeviceSize size, VkDeviceSize byteAlign)
 {
@@ -68,6 +69,24 @@ static inline VkRect2D rect2D(const QRect &rect)
     return r;
 }
 
+static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallbackFunc(VkDebugReportFlagsEXT flags,
+                                                        VkDebugReportObjectTypeEXT objectType,
+                                                        uint64_t object,
+                                                        size_t location,
+                                                        int32_t messageCode,
+                                                        const char *pLayerPrefix,
+                                                        const char *pMessage,
+                                                        void *pUserData)
+{
+    Q_UNUSED(flags);
+    Q_UNUSED(objectType);
+    Q_UNUSED(object);
+    Q_UNUSED(location);
+    Q_UNUSED(pUserData);
+    qDebug("DEBUG: %s: %d: %s", pLayerPrefix, messageCode, pMessage);
+    return VK_FALSE;
+}
+
 void VulkanRenderer::createDevice()
 {
     VkApplicationInfo appInfo;
@@ -76,28 +95,112 @@ void VulkanRenderer::createDevice()
     appInfo.pApplicationName = "qqvk";
     appInfo.apiVersion = VK_MAKE_VERSION(1, 0, 2);
 
+    uint32_t layerCount = 0;
+    vkEnumerateInstanceLayerProperties(&layerCount, nullptr);
+    qDebug("%d layers", layerCount);
+    QVector<char *> enabledLayers;
+    if (layerCount) {
+        QVector<VkLayerProperties> layerProps(layerCount);
+        vkEnumerateInstanceLayerProperties(&layerCount, layerProps.data());
+        for (const VkLayerProperties &p : qAsConst(layerProps)) {
+            if (!strcmp(p.layerName, "VK_LAYER_LUNARG_standard_validation"))
+                enabledLayers.append(strdup(p.layerName));
+        }
+    }
+    if (!enabledLayers.isEmpty())
+        qDebug() << "enabling layers" << enabledLayers;
+
+    m_hasDebug = false;
+    uint32_t extCount = 0;
+    vkEnumerateInstanceExtensionProperties(nullptr, &extCount, nullptr);
+    qDebug("%d instance extensions", extCount);
+    QVector<char *> enabledExtensions;
+    if (extCount) {
+        QVector<VkExtensionProperties> extProps(extCount);
+        vkEnumerateInstanceExtensionProperties(nullptr, &extCount, extProps.data());
+        for (const VkExtensionProperties &p : qAsConst(extProps)) {
+            if (!strcmp(p.extensionName, "VK_EXT_debug_report")) {
+                enabledExtensions.append(strdup(p.extensionName));
+                m_hasDebug = true;
+            } else if (!strcmp(p.extensionName, "VK_KHR_surface")
+                       || !strcmp(p.extensionName, "VK_KHR_win32_surface"))
+            {
+                enabledExtensions.append(strdup(p.extensionName));
+            }
+        }
+    }
+    if (!enabledExtensions.isEmpty())
+        qDebug() << "enabling instance extensions" << enabledExtensions;
+
     VkInstanceCreateInfo instInfo;
     memset(&instInfo, 0, sizeof(instInfo));
     instInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
     instInfo.pApplicationInfo = &appInfo;
+    if (!enabledLayers.isEmpty()) {
+        instInfo.enabledLayerCount = enabledLayers.count();
+        instInfo.ppEnabledLayerNames = enabledLayers.constData();
+        instInfo.enabledExtensionCount = enabledExtensions.count();
+        instInfo.ppEnabledExtensionNames = enabledExtensions.constData();
+    }
 
     VkResult err = vkCreateInstance(&instInfo, nullptr, &m_vkInst);
     if (err != VK_SUCCESS)
         qFatal("Failed to create Vulkan instance: %d", err);
 
-    // Just pick the first physical device.
-    uint32_t devCount = 1;
+    for (auto s : enabledLayers) free(s);
+    for (auto s : enabledExtensions) free(s);
+
+    if (m_hasDebug) {
+        vkCreateDebugReportCallbackEXT = reinterpret_cast<PFN_vkCreateDebugReportCallbackEXT>(vkGetInstanceProcAddr(m_vkInst, "vkCreateDebugReportCallbackEXT"));
+        vkDestroyDebugReportCallbackEXT = reinterpret_cast<PFN_vkDestroyDebugReportCallbackEXT>(vkGetInstanceProcAddr(m_vkInst, "vkDestroyDebugReportCallbackEXT"));
+        vkDebugReportMessageEXT = reinterpret_cast<PFN_vkDebugReportMessageEXT>(vkGetInstanceProcAddr(m_vkInst, "vkDebugReportMessageEXT"));
+
+        VkDebugReportCallbackCreateInfoEXT dbgCallbackInfo;
+        memset(&dbgCallbackInfo, 0, sizeof(dbgCallbackInfo));
+        dbgCallbackInfo.sType = VK_STRUCTURE_TYPE_DEBUG_REPORT_CREATE_INFO_EXT;
+        dbgCallbackInfo.flags =  VK_DEBUG_REPORT_ERROR_BIT_EXT | VK_DEBUG_REPORT_WARNING_BIT_EXT | VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT;
+        dbgCallbackInfo.pfnCallback = &debugCallbackFunc;
+        err = vkCreateDebugReportCallbackEXT(m_vkInst, &dbgCallbackInfo, nullptr, &m_debugCallback);
+        if (err != VK_SUCCESS) {
+            qWarning("Failed to create debug report callback: %d", err);
+            m_hasDebug = false;
+        }
+    }
+
+    uint32_t devCount = 0;
+    vkEnumeratePhysicalDevices(m_vkInst, &devCount, nullptr);
+    qDebug("%d physical devices", devCount);
+    if (!devCount)
+        qFatal("No physical devices");
+    // Just pick the first physical device for now.
+    devCount = 1;
     err = vkEnumeratePhysicalDevices(m_vkInst, &devCount, &m_vkPhysDev);
     if (err != VK_SUCCESS)
         qFatal("Failed to enumerate physical devices: %d", err);
-
-    qDebug("%d physical devices", devCount);
 
     VkPhysicalDeviceProperties physDevProps;
     vkGetPhysicalDeviceProperties(m_vkPhysDev, &physDevProps);
     qDebug("Device name: %s\nDriver version: %d.%d.%d", physDevProps.deviceName,
            VK_VERSION_MAJOR(physDevProps.driverVersion), VK_VERSION_MINOR(physDevProps.driverVersion),
            VK_VERSION_PATCH(physDevProps.driverVersion));
+
+    extCount = 0;
+    vkEnumerateDeviceExtensionProperties(m_vkPhysDev, nullptr, &extCount, nullptr);
+    qDebug("%d device extensions", extCount);
+    enabledExtensions.clear();
+    if (extCount) {
+        QVector<VkExtensionProperties> extProps(extCount);
+        vkEnumerateDeviceExtensionProperties(m_vkPhysDev, nullptr, &extCount, extProps.data());
+        for (const VkExtensionProperties &p : qAsConst(extProps)) {
+            if (!strcmp(p.extensionName, "VK_KHR_swapchain")
+                || !strcmp(p.extensionName, "VK_NV_glsl_shader"))
+            {
+                enabledExtensions.append(strdup(p.extensionName));
+            }
+        }
+    }
+    if (!enabledExtensions.isEmpty())
+        qDebug() << "enabling device extensions" << enabledExtensions;
 
     uint32_t queueCount = 0;
     vkGetPhysicalDeviceQueueFamilyProperties(m_vkPhysDev, &queueCount, nullptr);
@@ -120,10 +223,14 @@ void VulkanRenderer::createDevice()
     devInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
     devInfo.queueCreateInfoCount = 1;
     devInfo.pQueueCreateInfos = &queueInfo;
+    devInfo.enabledExtensionCount = enabledExtensions.count();
+    devInfo.ppEnabledExtensionNames = enabledExtensions.constData();
 
     err = vkCreateDevice(m_vkPhysDev, &devInfo, nullptr, &m_vkDev);
     if (err != VK_SUCCESS)
         qFatal("Failed to create device: %d", err);
+
+    for (auto s : enabledExtensions) free(s);
 
     vkGetDeviceQueue(m_vkDev, gfxQueueFamilyIdx, 0, &m_vkQueue);
 
@@ -148,7 +255,12 @@ void VulkanRenderer::createDevice()
 void VulkanRenderer::releaseDevice()
 {
     vkDestroyCommandPool(m_vkDev, m_vkCmdPool, nullptr);
+
     vkDestroyDevice(m_vkDev, nullptr);
+
+    if (m_hasDebug)
+        vkDestroyDebugReportCallbackEXT(m_vkInst, m_debugCallback, nullptr);
+
     vkDestroyInstance(m_vkInst, nullptr);
 }
 
