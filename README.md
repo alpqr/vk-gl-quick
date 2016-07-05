@@ -30,8 +30,13 @@ via QLibrary or the device/instance-level getProcAddr, so no libs are needed at
 link time.
 
 TODO:
+
   add the swap chain stuff for the window path
+
   issue some real draw calls
+
   play a bit with shaders (SPIR-V, VK_NV_glsl_shader, etc.)
+
   some other WSIs
+
   long-term: investigate doing things in a QQuickFramebufferObject to get an item that is actually part of the scene

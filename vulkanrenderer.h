@@ -62,8 +62,17 @@
 
 class VulkanRenderer
 {
+public:
+    enum Flag {
+        EnableValidation = 0x01
+    };
+    Q_DECLARE_FLAGS(Flags, Flag)
+
 protected:
-    VulkanRenderer(QWindow *window = nullptr) : m_window(window) { }
+    VulkanRenderer(QWindow *window = nullptr, Flags flags = 0)
+        : m_window(window),
+          m_flags(flags)
+    { }
 
     void createDevice();
     void recreateSwapChain();
@@ -232,6 +241,7 @@ protected:
     PFN_vkQueuePresentKHR vkQueuePresentKHR;
 
     QWindow *m_window;
+    Flags m_flags;
     VkSurfaceKHR m_surface;
     VkFormat m_colorFormat;
     VkSwapchainKHR m_swapChain = VK_NULL_HANDLE;
@@ -254,5 +264,7 @@ protected:
     VkRenderPass m_renderPass = 0;
     VkFramebuffer m_fb = 0;
 };
+
+Q_DECLARE_OPERATORS_FOR_FLAGS(VulkanRenderer::Flags)
 
 #endif

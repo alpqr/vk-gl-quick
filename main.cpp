@@ -64,7 +64,7 @@ int main(int argc, char **argv)
 
     if (QCoreApplication::arguments().contains(QStringLiteral("--window"))) {
         window.reset(new QWindow);
-        vkrwin.reset(new VulkanWindowRenderer(window.data()));
+        vkrwin.reset(new VulkanWindowRenderer(window.data(), VulkanRenderer::EnableValidation));
         window->resize(1024, 768);
         window->show();
     } else {

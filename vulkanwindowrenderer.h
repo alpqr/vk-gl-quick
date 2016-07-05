@@ -57,7 +57,7 @@
 class VulkanWindowRenderer : public QObject, public VulkanRenderer
 {
 public:
-    VulkanWindowRenderer(QWindow *window);
+    VulkanWindowRenderer(QWindow *window, Flags flags = 0);
     ~VulkanWindowRenderer();
 
 private:

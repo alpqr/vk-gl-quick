@@ -51,8 +51,8 @@
 #include "vulkanwindowrenderer.h"
 #include <QLibrary>
 
-VulkanWindowRenderer::VulkanWindowRenderer(QWindow *window)
-    : VulkanRenderer(window),
+VulkanWindowRenderer::VulkanWindowRenderer(QWindow *window, Flags flags)
+    : VulkanRenderer(window, flags),
       m_vulkanLib(QStringLiteral("vulkan-1"))
 {
     if (!m_vulkanLib.load())

@@ -103,7 +103,7 @@ void VulkanRenderer::createDevice()
         QVector<VkLayerProperties> layerProps(layerCount);
         vkEnumerateInstanceLayerProperties(&layerCount, layerProps.data());
         for (const VkLayerProperties &p : qAsConst(layerProps)) {
-            if (!strcmp(p.layerName, "VK_LAYER_LUNARG_standard_validation"))
+            if (m_flags.testFlag(EnableValidation) && !strcmp(p.layerName, "VK_LAYER_LUNARG_standard_validation"))
                 enabledLayers.append(strdup(p.layerName));
         }
     }
@@ -218,7 +218,7 @@ void VulkanRenderer::createDevice()
             // If the validation layer is enabled for the instance, it has to
             // be enabled for the device too, otherwise be prepared for
             // mysterious errors...
-            if (!strcmp(p.layerName, "VK_LAYER_LUNARG_standard_validation"))
+            if (m_flags.testFlag(EnableValidation) && !strcmp(p.layerName, "VK_LAYER_LUNARG_standard_validation"))
                 enabledLayers.append(strdup(p.layerName));
         }
     }
