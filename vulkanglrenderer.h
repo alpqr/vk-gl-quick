@@ -70,7 +70,7 @@ private:
     void init();
     void present();
 
-    QQuickWindow *m_window;
+    QQuickWindow *m_quickWindow;
     bool m_inited = false;
     QSize m_lastWindowSize;
     VkSemaphore m_semRender;

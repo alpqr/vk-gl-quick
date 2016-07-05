@@ -53,7 +53,8 @@
 #include <QOpenGLContext>
 
 VulkanGLRenderer::VulkanGLRenderer(QQuickWindow *window)
-    : m_window(window)
+// 'window' in the base class is left null, meaning all surface and swapchain stuff is skipped
+    : m_quickWindow(window)
 {
     connect(window, &QQuickWindow::beforeRendering, this, &VulkanGLRenderer::onBeforeRendering, Qt::DirectConnection);
     connect(window, &QQuickWindow::sceneGraphInvalidated, this, &VulkanGLRenderer::onInvalidate, Qt::DirectConnection);
@@ -259,7 +260,7 @@ void VulkanGLRenderer::onBeforeRendering()
 {
     init();
 
-    const QSize windowSize = m_window->size();
+    const QSize windowSize = m_quickWindow->size();
     if (windowSize != m_lastWindowSize) {
         vkDeviceWaitIdle(m_vkDev);
         releaseRenderTarget();

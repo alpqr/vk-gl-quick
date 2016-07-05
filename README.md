@@ -29,7 +29,8 @@ To be as portable as possible, all functions are resolved dynamically, either
 via QLibrary or the device/instance-level getProcAddr, so no libs are needed at
 link time.
 
--TODO:
+TODO:
+
 -- add the swap chain stuff for the window path
 -- issue some real draw calls
 -- play a bit with shaders (SPIR-V, VK_NV_glsl_shader, etc.)
