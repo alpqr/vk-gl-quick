@@ -52,6 +52,7 @@
 #define VULKANRENDERER_H
 
 #include <QSize>
+#include <QRect>
 
 #ifdef Q_OS_WIN
 #define VK_USE_PLATFORM_WIN32_KHR
@@ -236,5 +237,20 @@ protected:
 };
 
 Q_DECLARE_OPERATORS_FOR_FLAGS(VulkanRenderer::Flags)
+
+inline VkDeviceSize qtvk_alignedSize(VkDeviceSize size, VkDeviceSize byteAlign)
+{
+    return (size + byteAlign - 1) & ~(byteAlign - 1);
+}
+
+inline VkRect2D qtvk_rect2D(const QRect &rect)
+{
+    VkRect2D r;
+    r.offset.x = rect.x();
+    r.offset.y = rect.y();
+    r.extent.width = rect.width();
+    r.extent.height = rect.height();
+    return r;
+}
 
 #endif

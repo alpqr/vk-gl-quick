@@ -50,7 +50,6 @@
 
 #include "vulkanrenderer.h"
 #include <qalgorithms.h>
-#include <QRect>
 #include <QVector>
 #include <QDebug>
 
@@ -279,10 +278,8 @@ void VulkanRenderer::createDeviceAndSurface()
 
 void VulkanRenderer::releaseDeviceAndSurface()
 {
-    vkDestroyCommandPool(m_vkDev, m_vkCmdPool, nullptr);
-
     releaseSurface();
-
+    vkDestroyCommandPool(m_vkDev, m_vkCmdPool, nullptr);
     vkDestroyDevice(m_vkDev, nullptr);
 
     if (m_hasDebug)

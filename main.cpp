@@ -62,12 +62,7 @@ int main(int argc, char **argv)
     QScopedPointer<VulkanGLRenderer> vkrgl;
     QScopedPointer<VulkanWindowRenderer> vkrwin;
 
-    if (QCoreApplication::arguments().contains(QStringLiteral("--window"))) {
-        window.reset(new QWindow);
-        vkrwin.reset(new VulkanWindowRenderer(window.data(), VulkanRenderer::EnableValidation));
-        window->resize(1024, 768);
-        window->show();
-    } else {
+    if (QCoreApplication::arguments().contains(QStringLiteral("--glnv"))) {
         view.reset(new QQuickView);
         vkrgl.reset(new VulkanGLRenderer(view.data()));
         view->setClearBeforeRendering(false);
@@ -75,6 +70,11 @@ int main(int argc, char **argv)
         view->setSource(QUrl("qrc:///main.qml"));
         view->resize(1024, 768);
         view->show();
+    } else {
+        window.reset(new QWindow);
+        vkrwin.reset(new VulkanWindowRenderer(window.data(), VulkanRenderer::EnableValidation));
+        window->resize(1024, 768);
+        window->show();
     }
 
     return app.exec();

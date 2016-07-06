@@ -299,21 +299,6 @@ void VulkanGLRenderer::present()
     vkQueueSubmit(m_vkQueue, 1, &submitInfo, VK_NULL_HANDLE);
 }
 
-static inline VkDeviceSize alignedSize(VkDeviceSize size, VkDeviceSize byteAlign)
-{
-    return (size + byteAlign - 1) & ~(byteAlign - 1);
-}
-
-static inline VkRect2D rect2D(const QRect &rect)
-{
-    VkRect2D r;
-    r.offset.x = rect.x();
-    r.offset.y = rect.y();
-    r.extent.width = rect.width();
-    r.extent.height = rect.height();
-    return r;
-}
-
 void VulkanGLRenderer::createRenderTarget(const QSize &size)
 {
     VkImageCreateInfo imgInfo;
@@ -350,7 +335,7 @@ void VulkanGLRenderer::createRenderTarget(const QSize &size)
     VkMemoryAllocateInfo memInfo;
     memset(&memInfo, 0, sizeof(memInfo));
     memInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    const VkDeviceSize dsOffset = alignedSize(colorMemReq.size, dsMemReq.alignment);
+    const VkDeviceSize dsOffset = qtvk_alignedSize(colorMemReq.size, dsMemReq.alignment);
     memInfo.allocationSize = dsOffset + dsMemReq.size;
     memInfo.memoryTypeIndex = memTypeIndex;
     qDebug("allocating %lu bytes for color and depth-stencil", memInfo.allocationSize);
@@ -494,7 +479,7 @@ void VulkanGLRenderer::render(const QSize &size)
     rpBeginInfo.pNext = nullptr;
     rpBeginInfo.renderPass = m_renderPass;
     rpBeginInfo.framebuffer = m_fb;
-    rpBeginInfo.renderArea = rect2D(QRect(QPoint(0, 0), size));
+    rpBeginInfo.renderArea = qtvk_rect2D(QRect(QPoint(0, 0), size));
     rpBeginInfo.clearValueCount = 1;
     VkClearColorValue clearColor = { 0.0f, 1.0f, 0.0f, 1.0f };
     VkClearValue clearValue;

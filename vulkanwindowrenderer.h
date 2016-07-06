@@ -66,6 +66,10 @@ private:
     void init();
     void cleanup();
     void recreateSwapChain();
+    void ensureFrameCmdBuf(int frame);
+    bool beginFrame();
+    void endFrame();
+    void renderFrame();
     bool eventFilter(QObject *watched, QEvent *event) override;
 
     void createSurface() override;
@@ -79,9 +83,29 @@ private:
     VkSurfaceKHR m_surface;
     VkSwapchainKHR m_swapChain = VK_NULL_HANDLE;
     uint32_t m_swapChainBufferCount = 0;
+
+    static const uint32_t REQUESTED_SWAPCHAIN_BUFFERS = 2;
     static const uint32_t MAX_SWAPCHAIN_BUFFERS = 3;
+    static const uint32_t FRAMES_IN_FLIGHT = 2;
+
     VkImage m_swapChainImages[MAX_SWAPCHAIN_BUFFERS];
     VkImageView m_swapChainImageViews[MAX_SWAPCHAIN_BUFFERS];
+    VkDeviceMemory m_dsMem = VK_NULL_HANDLE;
+    VkImage m_ds;
+    VkImageView m_dsView;
+    VkFramebuffer m_fb[MAX_SWAPCHAIN_BUFFERS];
+
+    VkSemaphore m_acquireSem[FRAMES_IN_FLIGHT];
+    VkSemaphore m_renderSem[FRAMES_IN_FLIGHT];
+    VkCommandBuffer m_frameCmdBuf[FRAMES_IN_FLIGHT];
+    bool m_frameCmdBufRecording[FRAMES_IN_FLIGHT];
+    VkFence m_frameFence[FRAMES_IN_FLIGHT];
+    bool m_frameFenceActive[FRAMES_IN_FLIGHT];
+
+    uint32_t m_currentSwapChainBuffer;
+    uint32_t m_currentFrame;
+
+    VkRenderPass m_renderPass = VK_NULL_HANDLE;
 
 #ifdef Q_OS_WIN
     PFN_vkCreateWin32SurfaceKHR vkCreateWin32SurfaceKHR;
@@ -99,6 +123,8 @@ private:
     PFN_vkGetSwapchainImagesKHR vkGetSwapchainImagesKHR;
     PFN_vkAcquireNextImageKHR vkAcquireNextImageKHR;
     PFN_vkQueuePresentKHR vkQueuePresentKHR;
+
+    float m_g = 0;
 };
 
 #endif

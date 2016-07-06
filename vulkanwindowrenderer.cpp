@@ -50,6 +50,8 @@
 
 #include "vulkanwindowrenderer.h"
 #include <QWindow>
+#include <QElapsedTimer>
+#include <QCoreApplication>
 
 VulkanWindowRenderer::VulkanWindowRenderer(QWindow *window, Flags flags)
     : VulkanRenderer(flags),
@@ -73,6 +75,7 @@ bool VulkanWindowRenderer::eventFilter(QObject *, QEvent *event)
         if (m_window->isExposed()) {
             if (!m_inited)
                 init();
+            m_window->requestUpdate();
         } else if (m_inited) {
             vkDeviceWaitIdle(m_vkDev);
             cleanup();
@@ -81,6 +84,14 @@ bool VulkanWindowRenderer::eventFilter(QObject *, QEvent *event)
         if (m_inited && m_window->isExposed()) {
             vkDeviceWaitIdle(m_vkDev);
             recreateSwapChain();
+        }
+    } else if (event->type() == QEvent::UpdateRequest) {
+        if (m_inited && m_window->isExposed()) {
+            m_window->requestUpdate();
+            if (beginFrame()) {
+                renderFrame();
+                endFrame();
+            }
         }
     }
 
@@ -269,16 +280,61 @@ void VulkanWindowRenderer::createSurface()
     if (err != VK_SUCCESS)
         qFatal("Failed to create Win32 surface: %d", err);
 #endif
+
+    for (uint32_t i = 0; i < MAX_SWAPCHAIN_BUFFERS; ++i)
+        m_fb[i] = VK_NULL_HANDLE;
+
+    for (uint32_t i = 0; i < FRAMES_IN_FLIGHT; ++i) {
+        m_frameCmdBuf[i] = VK_NULL_HANDLE;
+        m_frameCmdBufRecording[i] = false;
+        m_frameFence[i] = VK_NULL_HANDLE;
+        m_acquireSem[i] = VK_NULL_HANDLE;
+        m_renderSem[i] = VK_NULL_HANDLE;
+    }
 }
 
 void VulkanWindowRenderer::releaseSurface()
 {
+    for (uint32_t i = 0; i < FRAMES_IN_FLIGHT; ++i) {
+        if (m_frameCmdBuf[i] != VK_NULL_HANDLE) {
+            vkFreeCommandBuffers(m_vkDev, m_vkCmdPool, 1, &m_frameCmdBuf[i]);
+            m_frameCmdBuf[i] = VK_NULL_HANDLE;
+        }
+        if (m_frameFence[i] != VK_NULL_HANDLE) {
+            vkDestroyFence(m_vkDev, m_frameFence[i], nullptr);
+            m_frameFence[i] = VK_NULL_HANDLE;
+        }
+        if (m_acquireSem[i] != VK_NULL_HANDLE) {
+            vkDestroySemaphore(m_vkDev, m_acquireSem[i], nullptr);
+            m_acquireSem[i] = VK_NULL_HANDLE;
+        }
+        if (m_renderSem[i] != VK_NULL_HANDLE) {
+            vkDestroySemaphore(m_vkDev, m_renderSem[i], nullptr);
+            m_renderSem[i] = VK_NULL_HANDLE;
+        }
+    }
+
+    if (m_renderPass != VK_NULL_HANDLE) {
+        vkDestroyRenderPass(m_vkDev, m_renderPass, nullptr);
+        m_renderPass = VK_NULL_HANDLE;
+    }
+
     if (m_swapChain != VK_NULL_HANDLE) {
-        for (uint32_t i = 0; i < m_swapChainBufferCount; ++i)
+        for (uint32_t i = 0; i < m_swapChainBufferCount; ++i) {
             vkDestroyImageView(m_vkDev, m_swapChainImageViews[i], nullptr);
+            if (m_fb[i] != VK_NULL_HANDLE) {
+                vkDestroyFramebuffer(m_vkDev, m_fb[i], nullptr);
+                m_fb[i] = VK_NULL_HANDLE;
+            }
+        }
         vkDestroySwapchainKHR(m_vkDev, m_swapChain, nullptr);
         m_swapChain = VK_NULL_HANDLE;
+        vkDestroyImageView(m_vkDev, m_dsView, nullptr);
+        vkDestroyImage(m_vkDev, m_ds, nullptr);
+        vkFreeMemory(m_vkDev, m_dsMem, nullptr);
+        m_dsMem = VK_NULL_HANDLE;
     }
+
     vkDestroySurfaceKHR(m_vkInst, m_surface, nullptr);
 }
 
@@ -322,7 +378,7 @@ void VulkanWindowRenderer::recreateSwapChain()
 
     VkSurfaceCapabilitiesKHR surfaceCaps;
     vkGetPhysicalDeviceSurfaceCapabilitiesKHR(m_vkPhysDev, m_surface, &surfaceCaps);
-    uint32_t reqBufferCount = 2;
+    uint32_t reqBufferCount = REQUESTED_SWAPCHAIN_BUFFERS;
     if (surfaceCaps.maxImageCount)
         reqBufferCount = qBound(surfaceCaps.minImageCount, reqBufferCount, surfaceCaps.maxImageCount);
     Q_ASSERT(surfaceCaps.minImageCount <= MAX_SWAPCHAIN_BUFFERS);
@@ -376,6 +432,8 @@ void VulkanWindowRenderer::recreateSwapChain()
     if (err != VK_SUCCESS)
         qFatal("Failed to get swapchain images: %d", err);
 
+    qDebug("swap chain buffer count: %d", m_swapChainBufferCount);
+
     for (uint32_t i = 0; i < m_swapChainBufferCount; ++i) {
         VkImageViewCreateInfo imgViewInfo;
         memset(&imgViewInfo, 0, sizeof(imgViewInfo));
@@ -393,4 +451,315 @@ void VulkanWindowRenderer::recreateSwapChain()
         if (err != VK_SUCCESS)
             qFatal("Failed to create swapchain image view %d: %d", i, err);
     }
+
+    m_currentSwapChainBuffer = 0;
+    m_currentFrame = 0;
+
+    ensureFrameCmdBuf(m_currentFrame);
+
+    for (uint32_t i = 0; i < m_swapChainBufferCount; ++i) {
+        transitionImage(m_frameCmdBuf[m_currentFrame], m_swapChainImages[i],
+                        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+                        0, 0);
+    }
+
+    for (uint32_t i = 0; i < FRAMES_IN_FLIGHT; ++i) {
+        m_frameFenceActive[i] = false;
+        if (m_frameFence[i] == VK_NULL_HANDLE) {
+            VkFenceCreateInfo fenceInfo = {
+                VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
+                nullptr,
+                0
+            };
+            err = vkCreateFence(m_vkDev, &fenceInfo, nullptr, &m_frameFence[i]);
+            if (err != VK_SUCCESS)
+                qFatal("Failed to create fence: %d", err);
+        }
+        VkSemaphoreCreateInfo semInfo = {
+            VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
+            nullptr,
+            0
+        };
+        if (m_acquireSem[i] == VK_NULL_HANDLE) {
+            err = vkCreateSemaphore(m_vkDev, &semInfo, nullptr, &m_acquireSem[i]);
+            if (err != VK_SUCCESS)
+                qFatal("Failed to create acquire semaphore: %d", err);
+        }
+        if (m_renderSem[i] == VK_NULL_HANDLE) {
+            err = vkCreateSemaphore(m_vkDev, &semInfo, nullptr, &m_renderSem[i]);
+            if (err != VK_SUCCESS)
+                qFatal("Failed to create render semaphore: %d", err);
+        }
+    }
+
+    if (m_dsMem != VK_NULL_HANDLE) {
+        vkDestroyImageView(m_vkDev, m_dsView, nullptr);
+        vkDestroyImage(m_vkDev, m_ds, nullptr);
+        vkFreeMemory(m_vkDev, m_dsMem, nullptr);
+    }
+
+    VkImageCreateInfo imgInfo;
+    memset(&imgInfo, 0, sizeof(imgInfo));
+    imgInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    imgInfo.imageType = VK_IMAGE_TYPE_2D;
+    imgInfo.format = VK_FORMAT_D24_UNORM_S8_UINT;
+    imgInfo.extent.width = bufferSize.width;
+    imgInfo.extent.height = bufferSize.height;
+    imgInfo.mipLevels = 1;
+    imgInfo.arrayLayers = 1;
+    imgInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+    imgInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+    imgInfo.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+    err = vkCreateImage(m_vkDev, &imgInfo, nullptr, &m_ds);
+    if (err != VK_SUCCESS)
+        qFatal("Failed to create depth-stencil buffer: %d", err);
+
+    VkMemoryRequirements dsMemReq;
+    vkGetImageMemoryRequirements(m_vkDev, m_ds, &dsMemReq);
+    uint memTypeIndex = 0;
+    if (dsMemReq.memoryTypeBits)
+        memTypeIndex = qCountTrailingZeroBits(dsMemReq.memoryTypeBits);
+
+    VkMemoryAllocateInfo memInfo;
+    memset(&memInfo, 0, sizeof(memInfo));
+    memInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    memInfo.allocationSize = dsMemReq.size;
+    memInfo.memoryTypeIndex = memTypeIndex;
+    qDebug("allocating %lu bytes for depth-stencil", memInfo.allocationSize);
+
+    err = vkAllocateMemory(m_vkDev, &memInfo, nullptr, &m_dsMem);
+    if (err != VK_SUCCESS)
+        qFatal("Failed to allocate depth-stencil memory: %d", err);
+
+    err = vkBindImageMemory(m_vkDev, m_ds, m_dsMem, 0);
+    if (err != VK_SUCCESS)
+        qFatal("Failed to bind image memory for depth-stencil: %d", err);
+
+    transitionImage(m_frameCmdBuf[m_currentFrame], m_ds,
+                    VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+                    0, VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT, true);
+
+    VkImageViewCreateInfo imgViewInfo;
+    memset(&imgViewInfo, 0, sizeof(imgViewInfo));
+    imgViewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    imgViewInfo.image = m_ds;
+    imgViewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    imgViewInfo.format = VK_FORMAT_D24_UNORM_S8_UINT;
+    imgViewInfo.components.r = VK_COMPONENT_SWIZZLE_R;
+    imgViewInfo.components.g = VK_COMPONENT_SWIZZLE_G;
+    imgViewInfo.components.b = VK_COMPONENT_SWIZZLE_B;
+    imgViewInfo.components.a = VK_COMPONENT_SWIZZLE_A;
+    imgViewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
+    imgViewInfo.subresourceRange.levelCount = imgViewInfo.subresourceRange.layerCount = 1;
+    err = vkCreateImageView(m_vkDev, &imgViewInfo, nullptr, &m_dsView);
+    if (err != VK_SUCCESS)
+        qFatal("Failed to create depth-stencil view: %d", err);
+
+    if (m_renderPass == VK_NULL_HANDLE) {
+        VkAttachmentDescription attDesc[2];
+        memset(attDesc, 0, sizeof(attDesc));
+        attDesc[0].format = m_colorFormat;
+        attDesc[0].samples = VK_SAMPLE_COUNT_1_BIT;
+        attDesc[0].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        attDesc[0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+        attDesc[0].initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        attDesc[0].finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        attDesc[1].format = VK_FORMAT_D24_UNORM_S8_UINT;
+        attDesc[1].samples = VK_SAMPLE_COUNT_1_BIT;
+        attDesc[1].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        attDesc[1].storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE; // do not write out depth
+        attDesc[1].initialLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+        attDesc[1].finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+        VkAttachmentReference colorRef = { 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
+        VkAttachmentReference dsRef = { 1, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL };
+
+        VkSubpassDescription subPassDesc;
+        memset(&subPassDesc, 0, sizeof(subPassDesc));
+        subPassDesc.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+        subPassDesc.colorAttachmentCount = 1;
+        subPassDesc.pColorAttachments = &colorRef;
+        subPassDesc.pDepthStencilAttachment = &dsRef;
+
+        VkRenderPassCreateInfo rpInfo;
+        memset(&rpInfo, 0, sizeof(rpInfo));
+        rpInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+        rpInfo.attachmentCount = 2;
+        rpInfo.pAttachments = attDesc;
+        rpInfo.subpassCount = 1;
+        rpInfo.pSubpasses = &subPassDesc;
+        VkResult err = vkCreateRenderPass(m_vkDev, &rpInfo, nullptr, &m_renderPass);
+        if (err != VK_SUCCESS)
+            qFatal("Failed to create renderpass: %d", err);
+    }
+
+    for (uint32_t i = 0; i < m_swapChainBufferCount; ++i) {
+        if (m_fb[i] != VK_NULL_HANDLE)
+            vkDestroyFramebuffer(m_vkDev, m_fb[i], nullptr);
+        VkImageView views[2] = { m_swapChainImageViews[i], m_dsView };
+        VkFramebufferCreateInfo fbInfo;
+        memset(&fbInfo, 0, sizeof(fbInfo));
+        fbInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+        fbInfo.renderPass = m_renderPass;
+        fbInfo.attachmentCount = 2;
+        fbInfo.pAttachments = views;
+        fbInfo.width = bufferSize.width;
+        fbInfo.height = bufferSize.height;
+        fbInfo.layers = 1;
+        err = vkCreateFramebuffer(m_vkDev, &fbInfo, nullptr, &m_fb[i]);
+        if (err != VK_SUCCESS)
+            qFatal("Failed to create framebuffer: %d", err);
+    }
+}
+
+void VulkanWindowRenderer::ensureFrameCmdBuf(int frame)
+{
+    if (m_frameCmdBuf[frame] != VK_NULL_HANDLE) {
+        if (m_frameCmdBufRecording[frame])
+            return;
+        vkFreeCommandBuffers(m_vkDev, m_vkCmdPool, 1, &m_frameCmdBuf[frame]);
+    }
+
+    VkCommandBufferAllocateInfo cmdBufInfo = {
+        VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO, nullptr, m_vkCmdPool, VK_COMMAND_BUFFER_LEVEL_PRIMARY, 1
+    };
+    VkResult err = vkAllocateCommandBuffers(m_vkDev, &cmdBufInfo, &m_frameCmdBuf[frame]);
+    if (err != VK_SUCCESS)
+        qFatal("Failed to allocate frame command buffer: %d", err);
+
+    VkCommandBufferBeginInfo cmdBufBeginInfo = {
+        VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO, nullptr, 0, nullptr };
+    err = vkBeginCommandBuffer(m_frameCmdBuf[frame], &cmdBufBeginInfo);
+    if (err != VK_SUCCESS)
+        qFatal("Failed to begin frame command buffer: %d", err);
+
+    m_frameCmdBufRecording[frame] = true;
+}
+
+bool VulkanWindowRenderer::beginFrame()
+{
+    if (m_frameFenceActive[m_currentFrame]) {
+        qDebug("wait fence %p", m_frameFence[m_currentFrame]);
+        vkWaitForFences(m_vkDev, 1, &m_frameFence[m_currentFrame], true, UINT64_MAX);
+        vkResetFences(m_vkDev, 1, &m_frameFence[m_currentFrame]);
+    }
+
+    VkResult err = vkAcquireNextImageKHR(m_vkDev, m_swapChain, UINT64_MAX,
+                                         m_acquireSem[m_currentFrame], VK_NULL_HANDLE,
+                                         &m_currentSwapChainBuffer);
+    if (err != VK_SUCCESS) {
+        if (err == VK_ERROR_OUT_OF_DATE_KHR) {
+            qDebug("out of date in acquire");
+            vkDeviceWaitIdle(m_vkDev);
+            recreateSwapChain();
+            return false;
+        } else if (err != VK_SUBOPTIMAL_KHR) {
+            qWarning("Failed to acquire next swapchain image: %d", err);
+            return false;
+        }
+    }
+
+    qDebug("current swapchain buffer is %d, current frame is %d", m_currentSwapChainBuffer, m_currentFrame);
+
+    m_frameFenceActive[m_currentFrame] = true;
+    ensureFrameCmdBuf(m_currentFrame);
+
+    transitionImage(m_frameCmdBuf[m_currentFrame], m_swapChainImages[m_currentSwapChainBuffer],
+                    VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                    0, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
+
+    return true;
+}
+
+void VulkanWindowRenderer::endFrame()
+{
+    transitionImage(m_frameCmdBuf[m_currentFrame], m_swapChainImages[m_currentSwapChainBuffer],
+                    VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+                    VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, 0);
+
+    VkResult err = vkEndCommandBuffer(m_frameCmdBuf[m_currentFrame]);
+    if (err != VK_SUCCESS)
+        qFatal("Failed to end frame command buffer: %d", err);
+    m_frameCmdBufRecording[m_currentFrame] = false;
+
+    VkSubmitInfo submitInfo;
+    memset(&submitInfo, 0, sizeof(submitInfo));
+    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = &m_frameCmdBuf[m_currentFrame];
+    submitInfo.waitSemaphoreCount = 1;
+    submitInfo.pWaitSemaphores = &m_acquireSem[m_currentFrame];
+    submitInfo.signalSemaphoreCount = 1;
+    submitInfo.pSignalSemaphores = &m_renderSem[m_currentFrame];
+    VkPipelineStageFlags psf = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
+    submitInfo.pWaitDstStageMask = &psf;
+    err = vkQueueSubmit(m_vkQueue, 1, &submitInfo, m_frameFence[m_currentFrame]);
+    if (err != VK_SUCCESS) {
+        qWarning("Failed to submit to command queue: %d", err);
+        return;
+    }
+
+    VkPresentInfoKHR presInfo;
+    memset(&presInfo, 0, sizeof(presInfo));
+    presInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+    presInfo.swapchainCount = 1;
+    presInfo.pSwapchains = &m_swapChain;
+    presInfo.pImageIndices = &m_currentSwapChainBuffer;
+    presInfo.waitSemaphoreCount = 1;
+    presInfo.pWaitSemaphores = &m_renderSem[m_currentFrame];
+
+    err = vkQueuePresentKHR(m_vkQueue, &presInfo);
+    if (err != VK_SUCCESS) {
+        if (err == VK_ERROR_OUT_OF_DATE_KHR) {
+            qDebug("out of date in present");
+            vkDeviceWaitIdle(m_vkDev);
+            recreateSwapChain();
+            return;
+        } else if (err != VK_SUBOPTIMAL_KHR) {
+            qWarning("Failed to present: %d", err);
+        }
+    }
+
+    m_currentFrame = (m_currentFrame + 1) % FRAMES_IN_FLIGHT;
+}
+
+QElapsedTimer t;
+
+void VulkanWindowRenderer::renderFrame()
+{
+    qDebug("renderframe %d: elapsed %lld", m_currentFrame, t.restart());
+
+    Q_ASSERT(m_frameCmdBufRecording[m_currentFrame]);
+    VkCommandBuffer &cb = m_frameCmdBuf[m_currentFrame];
+    VkImage &img = m_swapChainImages[m_currentSwapChainBuffer];
+    VkFramebuffer &fb = m_fb[m_currentSwapChainBuffer];
+    const QSize size = m_window->size();
+
+    VkClearColorValue clearColor = { 0.0f, m_g, 0.0f, 1.0f };
+    VkImageSubresourceRange subResRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+    vkCmdClearColorImage(cb, img, VK_IMAGE_LAYOUT_GENERAL, &clearColor, 1, &subResRange);
+    m_g += 0.01f;
+    if (m_g > 1.0f)
+        m_g = 0.0f;
+
+//    VkRenderPassBeginInfo rpBeginInfo;
+//    rpBeginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+//    rpBeginInfo.pNext = nullptr;
+//    rpBeginInfo.renderPass = m_renderPass;
+//    rpBeginInfo.framebuffer = fb;
+//    rpBeginInfo.renderArea = qtvk_rect2D(QRect(QPoint(0, 0), size));
+//    rpBeginInfo.clearValueCount = 1;
+//    VkClearColorValue clearColor = { 0.0f, 1.0f, 0.0f, 1.0f };
+//    VkClearValue clearValue;
+//    clearValue.color = clearColor;
+//    clearValue.depthStencil.depth = 1.0f;
+//    clearValue.depthStencil.stencil = 0;
+//    rpBeginInfo.pClearValues = &clearValue;
+
+//    vkCmdBeginRenderPass(cb, &rpBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
+
+//    VkViewport viewport = { 0, 0, float(size.width()), float(size.height()), 0, 1 };
+//    vkCmdSetViewport(cb, 0, 1, &viewport);
+
+//    vkCmdEndRenderPass(cb);
 }
