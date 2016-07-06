@@ -16,11 +16,15 @@ without pipeline stalls. (i.e. something that is missing from the majority of
 "tutorials" out there)
 
 Note: NVIDIA drivers older than 368 are not recommended. For example, 365 was
-unable to provide vsync, running unthrottled.
+unable to provide vsync and was always running unthrottled.
 
 To be as portable as possible, all functions are resolved dynamically, either
 via QLibrary or the device/instance-level getProcAddr, so no libs are needed at
 link time.
+
+Currently the rendering is merely clearing to green. Some geometry will be
+added later.
+
 
 (2) Passing --glnv opens an OpenGL-based Qt Quick window and connects to
 QQuickWindow::beforeRendering() to perform some rendering via Vulkan before
@@ -30,7 +34,11 @@ Currently the rendering is merely clearing to green. Qt then fades out a red
 rectangle on top.
 
 This needs GL_NV_draw_vulkan_image, and has been tested on Windows (NVIDIA
-368.xx) and the DRIVE CX embedded platform (NVIDIA 367.xx, OpenGL ES 3.2).
+365.xx) and the DRIVE CX embedded platform (NVIDIA 367.xx, OpenGL ES 3.2).
+
+Note: This mode seem to be broken on 368.xx on Windows.
+
+
 
 Initialization and teardown is currently tied to
 scenegraphInitialized/Invalidated and expose/obscure events. When these happen
@@ -41,8 +49,6 @@ necessarily ideal for real apps but will do for demo purposes.
 TODO:
 
   issue some real draw calls
-
-  investigate bizarre validation warnings on resize
 
   play a bit with shaders (SPIR-V, VK_NV_glsl_shader, etc.)
 

@@ -308,6 +308,7 @@ void VulkanGLRenderer::createRenderTarget(const QSize &size)
     imgInfo.format = m_colorFormat;
     imgInfo.extent.width = size.width();
     imgInfo.extent.height = size.height();
+    imgInfo.extent.depth = 1;
     imgInfo.mipLevels = 1;
     imgInfo.arrayLayers = 1;
     imgInfo.samples = VK_SAMPLE_COUNT_1_BIT;

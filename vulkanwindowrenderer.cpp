@@ -455,6 +455,7 @@ void VulkanWindowRenderer::recreateSwapChain()
     m_currentSwapChainBuffer = 0;
     m_currentFrame = 0;
 
+    m_frameCmdBufRecording[m_currentFrame] = false;
     ensureFrameCmdBuf(m_currentFrame);
 
     for (uint32_t i = 0; i < m_swapChainBufferCount; ++i) {
@@ -474,6 +475,8 @@ void VulkanWindowRenderer::recreateSwapChain()
             err = vkCreateFence(m_vkDev, &fenceInfo, nullptr, &m_frameFence[i]);
             if (err != VK_SUCCESS)
                 qFatal("Failed to create fence: %d", err);
+        } else {
+            vkResetFences(m_vkDev, 1, &m_frameFence[i]);
         }
         VkSemaphoreCreateInfo semInfo = {
             VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
@@ -505,6 +508,7 @@ void VulkanWindowRenderer::recreateSwapChain()
     imgInfo.format = VK_FORMAT_D24_UNORM_S8_UINT;
     imgInfo.extent.width = bufferSize.width;
     imgInfo.extent.height = bufferSize.height;
+    imgInfo.extent.depth = 1;
     imgInfo.mipLevels = 1;
     imgInfo.arrayLayers = 1;
     imgInfo.samples = VK_SAMPLE_COUNT_1_BIT;
