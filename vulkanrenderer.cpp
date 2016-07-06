@@ -326,6 +326,8 @@ void VulkanRenderer::createDevice()
 void VulkanRenderer::recreateSwapChain()
 {
     Q_ASSERT(m_window);
+    if (m_window->size().isEmpty())
+        return;
 
     VkColorSpaceKHR colorSpace = VkColorSpaceKHR(0);
     uint32_t formatCount = 0;
@@ -341,9 +343,11 @@ void VulkanRenderer::recreateSwapChain()
 
     VkSurfaceCapabilitiesKHR surfaceCaps;
     vkGetPhysicalDeviceSurfaceCapabilitiesKHR(m_vkPhysDev, m_surface, &surfaceCaps);
-    uint32_t bufferCount = 2;
+    uint32_t reqBufferCount = 2;
     if (surfaceCaps.maxImageCount)
-        bufferCount = qBound(surfaceCaps.minImageCount, bufferCount, surfaceCaps.maxImageCount);
+        reqBufferCount = qBound(surfaceCaps.minImageCount, reqBufferCount, surfaceCaps.maxImageCount);
+    Q_ASSERT(surfaceCaps.minImageCount <= MAX_SWAPCHAIN_BUFFERS);
+    reqBufferCount = qMin(reqBufferCount, MAX_SWAPCHAIN_BUFFERS);
 
     VkExtent2D bufferSize = surfaceCaps.currentExtent;
     if (bufferSize.width == uint32_t(-1))
@@ -359,7 +363,7 @@ void VulkanRenderer::recreateSwapChain()
     memset(&swapChainInfo, 0, sizeof(swapChainInfo));
     swapChainInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
     swapChainInfo.surface = m_surface;
-    swapChainInfo.minImageCount = bufferCount;
+    swapChainInfo.minImageCount = reqBufferCount;
     swapChainInfo.imageFormat = m_colorFormat;
     swapChainInfo.imageColorSpace = colorSpace;
     swapChainInfo.imageExtent = bufferSize;
@@ -372,14 +376,44 @@ void VulkanRenderer::recreateSwapChain()
     swapChainInfo.clipped = true;
     swapChainInfo.oldSwapchain = oldSwapChain;
 
-    qDebug("creating new swap chain of %d buffers, size %dx%d", bufferCount, bufferSize.width, bufferSize.height);
+    qDebug("creating new swap chain of %d buffers, size %dx%d", reqBufferCount, bufferSize.width, bufferSize.height);
 
     VkResult err = vkCreateSwapchainKHR(m_vkDev, &swapChainInfo, nullptr, &m_swapChain);
     if (err != VK_SUCCESS)
         qFatal("Failed to create swap chain: %d", err);
 
-    if (oldSwapChain != VK_NULL_HANDLE)
+    if (oldSwapChain != VK_NULL_HANDLE) {
+        for (uint32_t i = 0; i < m_swapChainBufferCount; ++i)
+            vkDestroyImageView(m_vkDev, m_swapChainImageViews[i], nullptr);
         vkDestroySwapchainKHR(m_vkDev, oldSwapChain, nullptr);
+    }
+
+    m_swapChainBufferCount = 0;
+    err = vkGetSwapchainImagesKHR(m_vkDev, m_swapChain, &m_swapChainBufferCount, nullptr);
+    if (err != VK_SUCCESS || m_swapChainBufferCount < 2)
+        qFatal("Failed to get swapchain images: %d (count=%d)", err, m_swapChainBufferCount);
+
+    err = vkGetSwapchainImagesKHR(m_vkDev, m_swapChain, &m_swapChainBufferCount, m_swapChainImages);
+    if (err != VK_SUCCESS)
+        qFatal("Failed to get swapchain images: %d", err);
+
+    for (uint32_t i = 0; i < m_swapChainBufferCount; ++i) {
+        VkImageViewCreateInfo imgViewInfo;
+        memset(&imgViewInfo, 0, sizeof(imgViewInfo));
+        imgViewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        imgViewInfo.image = m_swapChainImages[i];
+        imgViewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        imgViewInfo.format = m_colorFormat;
+        imgViewInfo.components.r = VK_COMPONENT_SWIZZLE_R;
+        imgViewInfo.components.g = VK_COMPONENT_SWIZZLE_G;
+        imgViewInfo.components.b = VK_COMPONENT_SWIZZLE_B;
+        imgViewInfo.components.a = VK_COMPONENT_SWIZZLE_A;
+        imgViewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        imgViewInfo.subresourceRange.levelCount = imgViewInfo.subresourceRange.layerCount = 1;
+        err = vkCreateImageView(m_vkDev, &imgViewInfo, nullptr, &m_swapChainImageViews[i]);
+        if (err != VK_SUCCESS)
+            qFatal("Failed to create swapchain image view %d: %d", i, err);
+    }
 }
 
 void VulkanRenderer::releaseDevice()
@@ -388,6 +422,8 @@ void VulkanRenderer::releaseDevice()
 
     if (m_window) {
         if (m_swapChain != VK_NULL_HANDLE) {
+            for (uint32_t i = 0; i < m_swapChainBufferCount; ++i)
+                vkDestroyImageView(m_vkDev, m_swapChainImageViews[i], nullptr);
             vkDestroySwapchainKHR(m_vkDev, m_swapChain, nullptr);
             m_swapChain = VK_NULL_HANDLE;
         }
@@ -473,6 +509,7 @@ void VulkanRenderer::createRenderTarget(const QSize &size)
 
     imgViewInfo.image = m_ds;
     imgViewInfo.format = VK_FORMAT_D24_UNORM_S8_UINT;
+    imgViewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
     err = vkCreateImageView(m_vkDev, &imgViewInfo, nullptr, &m_dsView);
     if (err != VK_SUCCESS)
         qFatal("Failed to create depth-stencil attachment view: %d", err);

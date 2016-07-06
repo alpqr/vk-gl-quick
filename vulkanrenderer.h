@@ -245,6 +245,10 @@ protected:
     VkSurfaceKHR m_surface;
     VkFormat m_colorFormat;
     VkSwapchainKHR m_swapChain = VK_NULL_HANDLE;
+    uint32_t m_swapChainBufferCount = 0;
+    static const uint32_t MAX_SWAPCHAIN_BUFFERS = 3;
+    VkImage m_swapChainImages[MAX_SWAPCHAIN_BUFFERS];
+    VkImageView m_swapChainImageViews[MAX_SWAPCHAIN_BUFFERS];
 
     VkInstance m_vkInst;
     VkPhysicalDevice m_vkPhysDev;

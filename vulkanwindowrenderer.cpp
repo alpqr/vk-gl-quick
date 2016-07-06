@@ -72,6 +72,7 @@ bool VulkanWindowRenderer::eventFilter(QObject *, QEvent *event)
         if (m_window->isExposed()) {
             if (!m_inited)
                 init();
+            render(m_window->size());
         } else if (m_inited) {
             vkDeviceWaitIdle(m_vkDev);
             cleanup();
@@ -243,8 +244,6 @@ void VulkanWindowRenderer::cleanup()
 
     qDebug("Stopping VK window renderer");
     m_inited = false;
-
-    releaseRenderTarget();
 
     releaseDevice();
 }
