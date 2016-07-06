@@ -49,10 +49,11 @@
 ****************************************************************************/
 
 #include "vulkanwindowrenderer.h"
-#include <QLibrary>
+#include <QWindow>
 
 VulkanWindowRenderer::VulkanWindowRenderer(QWindow *window, Flags flags)
-    : VulkanRenderer(window, flags),
+    : VulkanRenderer(flags),
+      m_window(window),
       m_vulkanLib(QStringLiteral("vulkan-1"))
 {
     if (!m_vulkanLib.load())
@@ -72,7 +73,6 @@ bool VulkanWindowRenderer::eventFilter(QObject *, QEvent *event)
         if (m_window->isExposed()) {
             if (!m_inited)
                 init();
-            render(m_window->size());
         } else if (m_inited) {
             vkDeviceWaitIdle(m_vkDev);
             cleanup();
@@ -230,7 +230,7 @@ void VulkanWindowRenderer::init()
     vkCmdEndRenderPass = reinterpret_cast<PFN_vkCmdEndRenderPass>(m_vulkanLib.resolve("vkCmdEndRenderPass"));
     vkCmdExecuteCommands = reinterpret_cast<PFN_vkCmdExecuteCommands>(m_vulkanLib.resolve("vkCmdExecuteCommands"));
 
-    createDevice();
+    createDeviceAndSurface();
     recreateSwapChain();
 
     m_inited = true;
@@ -245,5 +245,152 @@ void VulkanWindowRenderer::cleanup()
     qDebug("Stopping VK window renderer");
     m_inited = false;
 
-    releaseDevice();
+    releaseDeviceAndSurface();
+}
+
+void VulkanWindowRenderer::createSurface()
+{
+    vkDestroySurfaceKHR = reinterpret_cast<PFN_vkDestroySurfaceKHR>(vkGetInstanceProcAddr(m_vkInst, "vkDestroySurfaceKHR"));
+    vkGetPhysicalDeviceSurfaceSupportKHR = reinterpret_cast<PFN_vkGetPhysicalDeviceSurfaceSupportKHR>(vkGetInstanceProcAddr(m_vkInst, "vkGetPhysicalDeviceSurfaceSupportKHR"));
+    vkGetPhysicalDeviceSurfaceCapabilitiesKHR = reinterpret_cast<PFN_vkGetPhysicalDeviceSurfaceCapabilitiesKHR>(vkGetInstanceProcAddr(m_vkInst, "vkGetPhysicalDeviceSurfaceCapabilitiesKHR"));
+    vkGetPhysicalDeviceSurfaceFormatsKHR = reinterpret_cast<PFN_vkGetPhysicalDeviceSurfaceFormatsKHR>(vkGetInstanceProcAddr(m_vkInst, "vkGetPhysicalDeviceSurfaceFormatsKHR"));
+    vkGetPhysicalDeviceSurfacePresentModesKHR = reinterpret_cast<PFN_vkGetPhysicalDeviceSurfacePresentModesKHR>(vkGetInstanceProcAddr(m_vkInst, "vkGetPhysicalDeviceSurfacePresentModesKHR"));
+
+#ifdef Q_OS_WIN
+    vkCreateWin32SurfaceKHR = reinterpret_cast<PFN_vkCreateWin32SurfaceKHR>(vkGetInstanceProcAddr(m_vkInst, "vkCreateWin32SurfaceKHR"));
+    vkGetPhysicalDeviceWin32PresentationSupportKHR = reinterpret_cast<PFN_vkGetPhysicalDeviceWin32PresentationSupportKHR>(vkGetInstanceProcAddr(m_vkInst, "vkGetPhysicalDeviceWin32PresentationSupportKHR"));
+
+    VkWin32SurfaceCreateInfoKHR surfaceInfo;
+    memset(&surfaceInfo, 0, sizeof(surfaceInfo));
+    surfaceInfo.sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR;
+    surfaceInfo.hinstance = GetModuleHandle(nullptr);
+    surfaceInfo.hwnd = HWND(m_window->winId());
+    VkResult err = vkCreateWin32SurfaceKHR(m_vkInst, &surfaceInfo, nullptr, &m_surface);
+    if (err != VK_SUCCESS)
+        qFatal("Failed to create Win32 surface: %d", err);
+#endif
+}
+
+void VulkanWindowRenderer::releaseSurface()
+{
+    if (m_swapChain != VK_NULL_HANDLE) {
+        for (uint32_t i = 0; i < m_swapChainBufferCount; ++i)
+            vkDestroyImageView(m_vkDev, m_swapChainImageViews[i], nullptr);
+        vkDestroySwapchainKHR(m_vkDev, m_swapChain, nullptr);
+        m_swapChain = VK_NULL_HANDLE;
+    }
+    vkDestroySurfaceKHR(m_vkInst, m_surface, nullptr);
+}
+
+bool VulkanWindowRenderer::physicalDeviceSupportsPresent(int queueFamilyIdx)
+{
+    bool ok = false;
+#ifdef Q_OS_WIN
+    ok |= bool(vkGetPhysicalDeviceWin32PresentationSupportKHR(m_vkPhysDev, queueFamilyIdx));
+#endif
+    VkBool32 supported = false;
+    vkGetPhysicalDeviceSurfaceSupportKHR(m_vkPhysDev, queueFamilyIdx, m_surface, &supported);
+    ok |= bool(supported);
+    return ok;
+}
+
+void VulkanWindowRenderer::recreateSwapChain()
+{
+    Q_ASSERT(m_window);
+    if (m_window->size().isEmpty())
+        return;
+
+    if (!vkCreateSwapchainKHR) {
+        vkCreateSwapchainKHR = reinterpret_cast<PFN_vkCreateSwapchainKHR>(vkGetDeviceProcAddr(m_vkDev, "vkCreateSwapchainKHR"));
+        vkDestroySwapchainKHR = reinterpret_cast<PFN_vkDestroySwapchainKHR>(vkGetDeviceProcAddr(m_vkDev, "vkDestroySwapchainKHR"));
+        vkGetSwapchainImagesKHR = reinterpret_cast<PFN_vkGetSwapchainImagesKHR>(vkGetDeviceProcAddr(m_vkDev, "vkGetSwapchainImagesKHR"));
+        vkAcquireNextImageKHR = reinterpret_cast<PFN_vkAcquireNextImageKHR>(vkGetDeviceProcAddr(m_vkDev, "vkAcquireNextImageKHR"));
+        vkQueuePresentKHR = reinterpret_cast<PFN_vkQueuePresentKHR>(vkGetDeviceProcAddr(m_vkDev, "vkQueuePresentKHR"));
+    }
+
+    VkColorSpaceKHR colorSpace = VkColorSpaceKHR(0);
+    uint32_t formatCount = 0;
+    vkGetPhysicalDeviceSurfaceFormatsKHR(m_vkPhysDev, m_surface, &formatCount, nullptr);
+    if (formatCount) {
+        QVector<VkSurfaceFormatKHR> formats(formatCount);
+        vkGetPhysicalDeviceSurfaceFormatsKHR(m_vkPhysDev, m_surface, &formatCount, formats.data());
+        if (formats[0].format != VK_FORMAT_UNDEFINED) {
+            m_colorFormat = formats[0].format;
+            colorSpace = formats[0].colorSpace;
+        }
+    }
+
+    VkSurfaceCapabilitiesKHR surfaceCaps;
+    vkGetPhysicalDeviceSurfaceCapabilitiesKHR(m_vkPhysDev, m_surface, &surfaceCaps);
+    uint32_t reqBufferCount = 2;
+    if (surfaceCaps.maxImageCount)
+        reqBufferCount = qBound(surfaceCaps.minImageCount, reqBufferCount, surfaceCaps.maxImageCount);
+    Q_ASSERT(surfaceCaps.minImageCount <= MAX_SWAPCHAIN_BUFFERS);
+    reqBufferCount = qMin(reqBufferCount, MAX_SWAPCHAIN_BUFFERS);
+
+    VkExtent2D bufferSize = surfaceCaps.currentExtent;
+    if (bufferSize.width == uint32_t(-1))
+        bufferSize.width = m_window->size().width();
+    if (bufferSize.height == uint32_t(-1))
+        bufferSize.height = m_window->size().height();
+
+    VkSurfaceTransformFlagBitsKHR preTransform = surfaceCaps.currentTransform;
+    VkPresentModeKHR presentMode = VK_PRESENT_MODE_FIFO_KHR;
+
+    VkSwapchainKHR oldSwapChain = m_swapChain;
+    VkSwapchainCreateInfoKHR swapChainInfo;
+    memset(&swapChainInfo, 0, sizeof(swapChainInfo));
+    swapChainInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
+    swapChainInfo.surface = m_surface;
+    swapChainInfo.minImageCount = reqBufferCount;
+    swapChainInfo.imageFormat = m_colorFormat;
+    swapChainInfo.imageColorSpace = colorSpace;
+    swapChainInfo.imageExtent = bufferSize;
+    swapChainInfo.imageArrayLayers = 1;
+    swapChainInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+    swapChainInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    swapChainInfo.preTransform = preTransform;
+    swapChainInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+    swapChainInfo.presentMode = presentMode;
+    swapChainInfo.clipped = true;
+    swapChainInfo.oldSwapchain = oldSwapChain;
+
+    qDebug("creating new swap chain of %d buffers, size %dx%d", reqBufferCount, bufferSize.width, bufferSize.height);
+
+    VkResult err = vkCreateSwapchainKHR(m_vkDev, &swapChainInfo, nullptr, &m_swapChain);
+    if (err != VK_SUCCESS)
+        qFatal("Failed to create swap chain: %d", err);
+
+    if (oldSwapChain != VK_NULL_HANDLE) {
+        for (uint32_t i = 0; i < m_swapChainBufferCount; ++i)
+            vkDestroyImageView(m_vkDev, m_swapChainImageViews[i], nullptr);
+        vkDestroySwapchainKHR(m_vkDev, oldSwapChain, nullptr);
+    }
+
+    m_swapChainBufferCount = 0;
+    err = vkGetSwapchainImagesKHR(m_vkDev, m_swapChain, &m_swapChainBufferCount, nullptr);
+    if (err != VK_SUCCESS || m_swapChainBufferCount < 2)
+        qFatal("Failed to get swapchain images: %d (count=%d)", err, m_swapChainBufferCount);
+
+    err = vkGetSwapchainImagesKHR(m_vkDev, m_swapChain, &m_swapChainBufferCount, m_swapChainImages);
+    if (err != VK_SUCCESS)
+        qFatal("Failed to get swapchain images: %d", err);
+
+    for (uint32_t i = 0; i < m_swapChainBufferCount; ++i) {
+        VkImageViewCreateInfo imgViewInfo;
+        memset(&imgViewInfo, 0, sizeof(imgViewInfo));
+        imgViewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        imgViewInfo.image = m_swapChainImages[i];
+        imgViewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        imgViewInfo.format = m_colorFormat;
+        imgViewInfo.components.r = VK_COMPONENT_SWIZZLE_R;
+        imgViewInfo.components.g = VK_COMPONENT_SWIZZLE_G;
+        imgViewInfo.components.b = VK_COMPONENT_SWIZZLE_B;
+        imgViewInfo.components.a = VK_COMPONENT_SWIZZLE_A;
+        imgViewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        imgViewInfo.subresourceRange.levelCount = imgViewInfo.subresourceRange.layerCount = 1;
+        err = vkCreateImageView(m_vkDev, &imgViewInfo, nullptr, &m_swapChainImageViews[i]);
+        if (err != VK_SUCCESS)
+            qFatal("Failed to create swapchain image view %d: %d", i, err);
+    }
 }

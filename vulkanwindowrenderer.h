@@ -54,6 +54,8 @@
 #include "vulkanrenderer.h"
 #include <QLibrary>
 
+class QWindow;
+
 class VulkanWindowRenderer : public QObject, public VulkanRenderer
 {
 public:
@@ -63,10 +65,40 @@ public:
 private:
     void init();
     void cleanup();
+    void recreateSwapChain();
     bool eventFilter(QObject *watched, QEvent *event) override;
+
+    void createSurface() override;
+    void releaseSurface() override;
+    bool physicalDeviceSupportsPresent(int queueFamilyIdx) override;
 
     bool m_inited = false;
     QLibrary m_vulkanLib;
+    QWindow *m_window;
+
+    VkSurfaceKHR m_surface;
+    VkSwapchainKHR m_swapChain = VK_NULL_HANDLE;
+    uint32_t m_swapChainBufferCount = 0;
+    static const uint32_t MAX_SWAPCHAIN_BUFFERS = 3;
+    VkImage m_swapChainImages[MAX_SWAPCHAIN_BUFFERS];
+    VkImageView m_swapChainImageViews[MAX_SWAPCHAIN_BUFFERS];
+
+#ifdef Q_OS_WIN
+    PFN_vkCreateWin32SurfaceKHR vkCreateWin32SurfaceKHR;
+    PFN_vkGetPhysicalDeviceWin32PresentationSupportKHR vkGetPhysicalDeviceWin32PresentationSupportKHR;
+#endif
+
+    PFN_vkDestroySurfaceKHR vkDestroySurfaceKHR;
+    PFN_vkGetPhysicalDeviceSurfaceSupportKHR vkGetPhysicalDeviceSurfaceSupportKHR;
+    PFN_vkGetPhysicalDeviceSurfaceCapabilitiesKHR vkGetPhysicalDeviceSurfaceCapabilitiesKHR;
+    PFN_vkGetPhysicalDeviceSurfaceFormatsKHR vkGetPhysicalDeviceSurfaceFormatsKHR;
+    PFN_vkGetPhysicalDeviceSurfacePresentModesKHR vkGetPhysicalDeviceSurfacePresentModesKHR;
+
+    PFN_vkCreateSwapchainKHR vkCreateSwapchainKHR = nullptr;
+    PFN_vkDestroySwapchainKHR vkDestroySwapchainKHR;
+    PFN_vkGetSwapchainImagesKHR vkGetSwapchainImagesKHR;
+    PFN_vkAcquireNextImageKHR vkAcquireNextImageKHR;
+    PFN_vkQueuePresentKHR vkQueuePresentKHR;
 };
 
 #endif

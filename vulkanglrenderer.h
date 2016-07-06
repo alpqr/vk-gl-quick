@@ -69,6 +69,9 @@ private slots:
 private:
     void init();
     void present();
+    void createRenderTarget(const QSize &size);
+    void releaseRenderTarget();
+    void render(const QSize &size);
 
     QQuickWindow *m_quickWindow;
     bool m_inited = false;
@@ -89,6 +92,14 @@ private:
     PFN_glSignalVkSemaphoreNV glSignalVkSemaphoreNV;
     PFN_glSignalVkFenceNV glSignalVkFenceNV;
     PFN_glDrawVkImageNV glDrawVkImageNV;
+
+    VkDeviceMemory m_rtMem = 0;
+    VkImage m_color = 0;
+    VkImageView m_colorView = 0;
+    VkImage m_ds = 0;
+    VkImageView m_dsView = 0;
+    VkRenderPass m_renderPass = 0;
+    VkFramebuffer m_fb = 0;
 };
 
 #endif

@@ -52,7 +52,6 @@
 #define VULKANRENDERER_H
 
 #include <QSize>
-#include <QWindow>
 
 #ifdef Q_OS_WIN
 #define VK_USE_PLATFORM_WIN32_KHR
@@ -69,17 +68,17 @@ public:
     Q_DECLARE_FLAGS(Flags, Flag)
 
 protected:
-    VulkanRenderer(QWindow *window = nullptr, Flags flags = 0)
-        : m_window(window),
-          m_flags(flags)
-    { }
+    VulkanRenderer(Flags flags = 0) : m_flags(flags) { }
 
-    void createDevice();
-    void recreateSwapChain();
-    void releaseDevice();
-    void createRenderTarget(const QSize &size);
-    void releaseRenderTarget();
-    void render(const QSize &size);
+    void createDeviceAndSurface();
+    void releaseDeviceAndSurface();
+    void transitionImage(VkCommandBuffer cmdBuf, VkImage image,
+                         VkImageLayout oldLayout, VkImageLayout newLayout,
+                         VkAccessFlags srcAccessMask, VkAccessFlags dstAccessMask, bool ds = false);
+
+    virtual void createSurface() { }
+    virtual void releaseSurface() { }
+    virtual bool physicalDeviceSupportsPresent(int queueFamilyIdx) { Q_UNUSED(queueFamilyIdx); return true; }
 
     PFN_vkCreateInstance vkCreateInstance;
     PFN_vkDestroyInstance vkDestroyInstance;
@@ -223,33 +222,8 @@ protected:
     PFN_vkDestroyDebugReportCallbackEXT vkDestroyDebugReportCallbackEXT;
     PFN_vkDebugReportMessageEXT vkDebugReportMessageEXT;
 
-#ifdef Q_OS_WIN
-    PFN_vkCreateWin32SurfaceKHR vkCreateWin32SurfaceKHR;
-    PFN_vkGetPhysicalDeviceWin32PresentationSupportKHR vkGetPhysicalDeviceWin32PresentationSupportKHR;
-#endif
-
-    PFN_vkDestroySurfaceKHR vkDestroySurfaceKHR;
-    PFN_vkGetPhysicalDeviceSurfaceSupportKHR vkGetPhysicalDeviceSurfaceSupportKHR;
-    PFN_vkGetPhysicalDeviceSurfaceCapabilitiesKHR vkGetPhysicalDeviceSurfaceCapabilitiesKHR;
-    PFN_vkGetPhysicalDeviceSurfaceFormatsKHR vkGetPhysicalDeviceSurfaceFormatsKHR;
-    PFN_vkGetPhysicalDeviceSurfacePresentModesKHR vkGetPhysicalDeviceSurfacePresentModesKHR;
-
-    PFN_vkCreateSwapchainKHR vkCreateSwapchainKHR;
-    PFN_vkDestroySwapchainKHR vkDestroySwapchainKHR;
-    PFN_vkGetSwapchainImagesKHR vkGetSwapchainImagesKHR;
-    PFN_vkAcquireNextImageKHR vkAcquireNextImageKHR;
-    PFN_vkQueuePresentKHR vkQueuePresentKHR;
-
-    QWindow *m_window;
     Flags m_flags;
-    VkSurfaceKHR m_surface;
     VkFormat m_colorFormat;
-    VkSwapchainKHR m_swapChain = VK_NULL_HANDLE;
-    uint32_t m_swapChainBufferCount = 0;
-    static const uint32_t MAX_SWAPCHAIN_BUFFERS = 3;
-    VkImage m_swapChainImages[MAX_SWAPCHAIN_BUFFERS];
-    VkImageView m_swapChainImageViews[MAX_SWAPCHAIN_BUFFERS];
-
     VkInstance m_vkInst;
     VkPhysicalDevice m_vkPhysDev;
     VkPhysicalDeviceMemoryProperties m_vkPhysDevMemProps;
@@ -259,14 +233,6 @@ protected:
     uint32_t m_hostVisibleMemIndex;
     bool m_hasDebug;
     VkDebugReportCallbackEXT m_debugCallback;
-
-    VkDeviceMemory m_rtMem = 0;
-    VkImage m_color = 0;
-    VkImageView m_colorView = 0;
-    VkImage m_ds = 0;
-    VkImageView m_dsView = 0;
-    VkRenderPass m_renderPass = 0;
-    VkFramebuffer m_fb = 0;
 };
 
 Q_DECLARE_OPERATORS_FOR_FLAGS(VulkanRenderer::Flags)
