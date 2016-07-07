@@ -1,3 +1,5 @@
+*NB! This repository is not maintained anymore. Use https://github.com/alpqr/qtvulkan instead.*
+
 Qt-based Vulkan experiments for QWindow and GL_NV_draw_vulkan_image in Qt Quick
 ===============================================================================
 
